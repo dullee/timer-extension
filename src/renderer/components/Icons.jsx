@@ -9,6 +9,25 @@ const base = {
   strokeLinejoin: 'round'
 }
 
+/** Timer mode toggle: reads as an alarm clock (a countdown, not a count-up). */
+export const TimerIcon = (p) => (
+  <svg {...base} {...p}>
+    <circle cx="12" cy="13" r="8" />
+    <path d="M12 9v4l3 2" />
+    <path d="m5 3-2.5 2.5M19 3l2.5 2.5" />
+  </svg>
+)
+
+/** Stopwatch mode toggle: a literal stopwatch, crown button and all. */
+export const StopwatchIcon = (p) => (
+  <svg {...base} {...p}>
+    <rect x="9" y="1.5" width="6" height="2.5" rx="1" />
+    <path d="M12 4v3" />
+    <circle cx="12" cy="14" r="8" />
+    <path d="M12 14V9.5" />
+  </svg>
+)
+
 export const PlayIcon = (p) => (
   <svg {...base} fill="currentColor" stroke="none" {...p}>
     <path d="M8 5.5v13l11-6.5z" />

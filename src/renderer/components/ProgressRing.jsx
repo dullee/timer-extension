@@ -18,7 +18,11 @@ export default function ProgressRing({ progress = 0, size = 40, stroke = 3, chil
           fill="none"
           stroke="currentColor"
           strokeWidth={stroke}
-          className="text-white/15"
+          // ink, not a fixed white -- the ring sits on the overlay's
+          // translucent surface, which is light in light mode and dark in
+          // dark mode, so the faint track has to flip the same way to stay
+          // visible against either.
+          className="text-ink/15"
         />
         <circle
           cx={size / 2}

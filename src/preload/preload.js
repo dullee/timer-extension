@@ -13,6 +13,7 @@ const api = {
   resume: () => ipcRenderer.invoke('timer:resume'),
   toggle: () => ipcRenderer.invoke('timer:toggle'),
   reset: () => ipcRenderer.invoke('timer:reset'),
+  setMode: (mode) => ipcRenderer.invoke('timer:set-mode', mode),
   setDuration: (durationMs) => ipcRenderer.invoke('timer:set-duration', durationMs),
   setLabel: (label) => ipcRenderer.invoke('timer:set-label', label),
 

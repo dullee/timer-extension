@@ -53,15 +53,39 @@ function resolveCredentials() {
   return { clientId: null, clientSecret: null }
 }
 
+/**
+ * Shown briefly in the user's real browser (not the app) after the OAuth
+ * redirect lands -- see createGoogleAuth's doc comment for why it's the
+ * system browser and not a BrowserWindow. Kept in the same monochrome,
+ * OS-driven palette as the app itself via a plain prefers-color-scheme media
+ * query, since this page has no access to the app's own CSS.
+ */
 function resultPage(title, message, ok) {
-  const accent = ok ? '#4f46e5' : '#dc2626'
   return `<!doctype html>
-<html><head><meta charset="utf-8"><title>${title}</title></head>
-<body style="margin:0;display:grid;place-items:center;height:100vh;font:16px/1.6 system-ui,sans-serif;background:#0f172a;color:#e2e8f0">
+<html><head><meta charset="utf-8"><title>${title}</title>
+<style>
+  :root { --surface: #ffffff; --ink: #18181b; --ink-muted: #71717a; --accent: #18181b; --danger: #dc2626; }
+  @media (prefers-color-scheme: dark) {
+    :root { --surface: #0a0a0a; --ink: #f4f4f5; --ink-muted: #a1a1aa; --accent: #fafafa; --danger: #f87171; }
+  }
+  body {
+    margin: 0; display: grid; place-items: center; height: 100vh;
+    font: 16px/1.6 system-ui, -apple-system, 'Segoe UI', sans-serif;
+    background: var(--surface); color: var(--ink);
+  }
+  .badge {
+    width: 56px; height: 56px; border-radius: 50%; margin: 0 auto 1.25rem;
+    display: grid; place-items: center; font-size: 28px; font-weight: 600;
+    background: ${ok ? 'var(--accent)' : 'var(--danger)'};
+    color: ${ok ? 'var(--surface)' : '#ffffff'};
+  }
+</style>
+</head>
+<body>
   <div style="text-align:center;max-width:26rem;padding:2rem">
-    <div style="width:56px;height:56px;border-radius:50%;background:${accent};margin:0 auto 1.25rem;display:grid;place-items:center;font-size:28px">${ok ? '&#10003;' : '!'}</div>
+    <div class="badge">${ok ? '&#10003;' : '!'}</div>
     <h1 style="font-size:1.25rem;margin:0 0 .5rem">${title}</h1>
-    <p style="margin:0;color:#94a3b8">${message}</p>
+    <p style="margin:0;color:var(--ink-muted)">${message}</p>
   </div>
 </body></html>`
 }

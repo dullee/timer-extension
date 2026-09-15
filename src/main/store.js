@@ -27,6 +27,12 @@ export const OVERLAY_COMPACT_SIZES = Object.freeze({
 const schema = {
   lastDurationMs: { type: 'number', minimum: 1000, default: 25 * 60 * 1000 },
   lastLabel: { type: 'string', default: '' },
+  // Kept in lockstep with the live TimerEngine mode by setTimerMode() in
+  // main.js (every path that can change it goes through that one function),
+  // so this doubles as both "what the next run defaults to" and "what's
+  // running right now" -- the same relationship overlayMode already has to
+  // the overlay window's live size.
+  lastMode: { type: 'string', enum: ['timer', 'stopwatch'], default: 'timer' },
   overlayMode: {
     type: 'string',
     enum: [OVERLAY_MODE.FLOATING, OVERLAY_MODE.MINI],
@@ -140,6 +146,7 @@ export function getPublicSettings() {
   return {
     lastDurationMs: store.get('lastDurationMs'),
     lastLabel: store.get('lastLabel'),
+    lastMode: store.get('lastMode'),
     overlayMode: store.get('overlayMode'),
     alwaysOnTop: store.get('alwaysOnTop'),
     showOverlayOnStart: store.get('showOverlayOnStart'),
@@ -161,6 +168,7 @@ export function getPublicSettings() {
 const WRITABLE_SETTINGS = new Set([
   'lastDurationMs',
   'lastLabel',
+  'lastMode',
   'overlayMode',
   'alwaysOnTop',
   'showOverlayOnStart',

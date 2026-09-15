@@ -1,6 +1,6 @@
 import { join } from 'node:path'
 import { Menu, Tray, app, nativeImage } from 'electron'
-import { STATE } from './timer-engine.js'
+import { MODE, STATE } from './timer-engine.js'
 import { OVERLAY_MODE } from './store.js'
 
 function formatRemaining(ms) {
@@ -39,10 +39,14 @@ export function createTray({ engine, controls }) {
   const tray = new Tray(trayIcon())
 
   function build() {
-    const { state, remainingMs, label } = engine.getState()
+    const { mode, state, remainingMs, label } = engine.getState()
     const running = state === STATE.RUNNING
     const paused = state === STATE.PAUSED
     const overlayMode = controls.getOverlayMode()
+    // Switching mode resets whatever's in progress (see timer-engine.js), so
+    // the menu holds off until there's nothing to lose -- same guard the
+    // overlay's own mode toggle uses.
+    const canSwitchTimerMode = state === STATE.IDLE || state === STATE.EXPIRED
 
     const status =
       state === STATE.IDLE
@@ -55,11 +59,30 @@ export function createTray({ engine, controls }) {
       { label: label ? `${label} — ${status}` : status, enabled: false },
       { type: 'separator' },
       {
-        label: running ? 'Pause' : paused ? 'Resume' : 'Start',
+        label: running ? 'Pause' : paused ? 'Resume' : mode === MODE.STOPWATCH ? 'Start stopwatch' : 'Start',
         click: () => engine.toggle()
       },
       { label: 'Reset', enabled: state !== STATE.IDLE, click: () => engine.reset() },
       { type: 'separator' },
+      {
+        label: 'Mode',
+        submenu: [
+          {
+            label: 'Timer (counts down)',
+            type: 'radio',
+            checked: mode === MODE.TIMER,
+            enabled: canSwitchTimerMode,
+            click: () => controls.setTimerMode(MODE.TIMER)
+          },
+          {
+            label: 'Stopwatch (counts up)',
+            type: 'radio',
+            checked: mode === MODE.STOPWATCH,
+            enabled: canSwitchTimerMode,
+            click: () => controls.setTimerMode(MODE.STOPWATCH)
+          }
+        ]
+      },
       {
         label: 'Show overlay',
         type: 'checkbox',

@@ -1,7 +1,7 @@
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { BrowserWindow, Notification, app, ipcMain, screen, shell } from 'electron'
-import { STATE, TimerEngine } from './timer-engine.js'
+import { BrowserWindow, Notification, app, ipcMain, nativeTheme, screen, shell } from 'electron'
+import { MODE, STATE, TimerEngine } from './timer-engine.js'
 import {
   OVERLAY_COMPACT_SIZES,
   OVERLAY_MODE,
@@ -39,7 +39,24 @@ let server = null
 let auth = null
 let isQuitting = false
 
-const engine = new TimerEngine({ defaultDurationMs: store.get('lastDurationMs') })
+const engine = new TimerEngine({
+  defaultDurationMs: store.get('lastDurationMs'),
+  defaultMode: store.get('lastMode')
+})
+
+/**
+ * The one place that changes the timer's mode, used by the IPC handler, the
+ * settings:update special-case, and the tray's Mode submenu alike -- so
+ * store.lastMode and the live engine mode can never drift apart.
+ */
+function setTimerMode(mode) {
+  // setMode() validates (throws RangeError for anything else) before this
+  // persists it -- an invalid value must never reach the store, or it'd be
+  // the default engine.getState() hands back on the next launch.
+  const snapshot = engine.setMode(mode)
+  store.set('lastMode', mode)
+  return snapshot
+}
 
 /* -------------------------------------------------------------- windows */
 
@@ -156,7 +173,10 @@ function createSettingsWindow() {
     minWidth: 720,
     minHeight: 560,
     title: 'Timer Settings',
-    backgroundColor: '#0f172a',
+    // Painted for one frame before the page's own CSS takes over, so it has
+    // to guess the theme itself -- nativeTheme.shouldUseDarkColors reflects
+    // the live OS setting, matching the surface tokens in styles.css.
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#0a0a0a' : '#ffffff',
     show: false,
     autoHideMenuBar: true,
     webPreferences: sharedWebPreferences
@@ -264,12 +284,21 @@ function broadcast(channel, payload) {
 /**
  * Taskbar/Dock progress. Windows paints it into the taskbar button, macOS
  * into the Dock icon; -1 clears it.
+ *
+ * Timer mode only: "progress" implies progress toward something, and a
+ * stopwatch has no target to measure against -- showing a fraction there
+ * would just be elapsedMs racing past the last configured timer duration and
+ * sticking at "full" forever, which is actively misleading rather than
+ * merely unhelpful.
  */
 function updateProgress(snapshot) {
   const target = settingsWindow && !settingsWindow.isDestroyed() ? settingsWindow : overlayWindow
   if (!target || target.isDestroyed()) return
 
-  if (snapshot.state === STATE.RUNNING || snapshot.state === STATE.PAUSED) {
+  const showsProgress =
+    snapshot.mode === MODE.TIMER && (snapshot.state === STATE.RUNNING || snapshot.state === STATE.PAUSED)
+
+  if (showsProgress) {
     const fraction = snapshot.durationMs > 0 ? snapshot.elapsedMs / snapshot.durationMs : 0
     target.setProgressBar(Math.min(1, Math.max(0, fraction)), {
       mode: snapshot.state === STATE.PAUSED ? 'paused' : 'normal'
@@ -298,15 +327,21 @@ function registerIpc() {
   ipcMain.handle('timer:get-state', () => engine.getState())
 
   ipcMain.handle('timer:start', (_e, payload = {}) => {
-    if (payload?.durationMs) store.set('lastDurationMs', Math.round(Number(payload.durationMs)))
+    // Let start() validate (it throws on a bad durationMs or mode) before
+    // persisting anything, and bank what actually took effect -- see the
+    // matching REST route in server.js for why this reads off the snapshot.
+    const snapshot = engine.start(payload)
+    store.set('lastDurationMs', snapshot.durationMs)
     if (payload?.label != null) store.set('lastLabel', String(payload.label))
-    return engine.start(payload)
+    store.set('lastMode', snapshot.mode)
+    return snapshot
   })
 
   ipcMain.handle('timer:pause', () => engine.pause())
   ipcMain.handle('timer:resume', () => engine.resume())
   ipcMain.handle('timer:toggle', () => engine.toggle())
   ipcMain.handle('timer:reset', () => engine.reset())
+  ipcMain.handle('timer:set-mode', (_e, mode) => setTimerMode(mode))
 
   ipcMain.handle('timer:set-duration', (_e, durationMs) => {
     store.set('lastDurationMs', Math.round(Number(durationMs)))
@@ -325,6 +360,7 @@ function registerIpc() {
     if ('alwaysOnTop' in patch) applyAlwaysOnTop(patch.alwaysOnTop)
     if ('overlayMode' in patch) setOverlayMode(patch.overlayMode)
     if ('lastDurationMs' in patch) engine.setDuration(patch.lastDurationMs)
+    if ('lastMode' in patch) setTimerMode(patch.lastMode)
     broadcast('settings:changed', next)
     tray?.refresh()
     return next
@@ -439,6 +475,7 @@ app.whenReady().then(async () => {
     controls: {
       getOverlayMode: () => store.get('overlayMode'),
       setOverlayMode,
+      setTimerMode,
       isOverlayVisible: () =>
         Boolean(overlayWindow && !overlayWindow.isDestroyed() && overlayWindow.isVisible()),
       toggleOverlayVisible,

@@ -40,8 +40,15 @@ function Toggle({ checked, onChange, label }) {
         checked ? 'bg-accent' : 'bg-border-subtle'
       }`}
     >
+      {/*
+        on-accent, not a fixed white: the track flips from near-black (light
+        mode) to near-white (dark mode), so a knob that stayed white would
+        vanish against a white track in dark mode. shadow-sm keeps it legible
+        against the unchecked track too, which is a light neutral gray in
+        light mode where a plain white knob would barely stand out.
+      */}
       <span
-        className={`absolute top-0.5 size-5 rounded-full bg-white transition-all ${
+        className={`absolute top-0.5 size-5 rounded-full bg-on-accent shadow-sm transition-all ${
           checked ? 'left-[22px]' : 'left-0.5'
         }`}
       />
@@ -51,8 +58,8 @@ function Toggle({ checked, onChange, label }) {
 
 function Button({ children, variant = 'secondary', className = '', ...rest }) {
   const variants = {
-    primary: 'bg-accent text-white hover:bg-accent-bright',
-    secondary: 'border border-border-subtle text-ink hover:bg-white/5',
+    primary: 'bg-accent text-on-accent hover:bg-accent-bright',
+    secondary: 'border border-border-subtle text-ink hover:bg-ink/5',
     danger: 'border border-danger/40 text-danger hover:bg-danger/10'
   }
   return (
@@ -189,6 +196,11 @@ export default function SettingsWindow({ snapshot, settings, previewChime }) {
   }
 
   const baseUrl = serverInfo?.baseUrl ?? 'http://127.0.0.1:3000'
+  const isStopwatch = settings.lastMode === 'stopwatch'
+  // Switching mode resets whatever's running (a countdown's remaining time
+  // has no sensible count-up equivalent), so -- same as the overlay's own
+  // toggle -- it's only offered once there's nothing to lose.
+  const canSwitchMode = !snapshot || snapshot.state === 'idle' || snapshot.state === 'expired'
 
   return (
     <div className="settings-root h-full overflow-y-auto bg-surface">
@@ -207,52 +219,89 @@ export default function SettingsWindow({ snapshot, settings, previewChime }) {
         {error ? <Banner tone="error">{error}</Banner> : null}
 
         {/* ---------------------------------------------------------- timer */}
-        <Section title="Timer" description="The duration used when a timer starts without one.">
-          <div className="flex flex-wrap gap-2">
-            {PRESETS.map((preset) => (
-              <button
-                key={preset.ms}
-                type="button"
-                onClick={() => patch({ lastDurationMs: preset.ms })}
-                className={`rounded-lg border px-3 py-1.5 text-sm transition ${
-                  settings.lastDurationMs === preset.ms
-                    ? 'border-accent bg-accent/20 text-ink'
-                    : 'border-border-subtle text-ink-muted hover:bg-white/5 hover:text-ink'
-                }`}
-              >
-                {preset.label}
-              </button>
-            ))}
-          </div>
-
-          <Row label="Custom duration" hint={formatDurationLabel(settings.lastDurationMs)}>
-            <div className="flex items-start gap-2">
-              <NumberField
-                value={duration.hours}
-                onChange={(v) => setDurationPart('hours', v)}
-                max={23}
-                label="hrs"
-              />
-              <NumberField
-                value={duration.minutes}
-                onChange={(v) => setDurationPart('minutes', v)}
-                max={59}
-                label="min"
-              />
-              <NumberField
-                value={duration.seconds}
-                onChange={(v) => setDurationPart('seconds', v)}
-                max={59}
-                label="sec"
-              />
+        <Section
+          title="Timer"
+          description={
+            isStopwatch
+              ? 'Stopwatches count up from zero -- there is no duration to set.'
+              : 'The duration used when a timer starts without one.'
+          }
+        >
+          <Row label="Mode">
+            <div className="flex gap-2">
+              {[
+                { id: 'timer', label: 'Timer' },
+                { id: 'stopwatch', label: 'Stopwatch' }
+              ].map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  disabled={!canSwitchMode}
+                  onClick={() => patch({ lastMode: option.id })}
+                  className={`rounded-lg border px-3 py-1.5 text-sm transition disabled:cursor-not-allowed disabled:opacity-40 ${
+                    settings.lastMode === option.id
+                      ? 'border-accent bg-accent/20 text-ink'
+                      : 'border-border-subtle text-ink-muted hover:enabled:bg-ink/5 hover:enabled:text-ink'
+                  }`}
+                >
+                  {option.label}
+                </button>
+              ))}
             </div>
           </Row>
+          {!canSwitchMode ? (
+            <p className="-mt-2 text-xs text-ink-muted">Reset the timer to switch modes.</p>
+          ) : null}
+
+          {!isStopwatch ? (
+            <>
+              <div className="flex flex-wrap gap-2">
+                {PRESETS.map((preset) => (
+                  <button
+                    key={preset.ms}
+                    type="button"
+                    onClick={() => patch({ lastDurationMs: preset.ms })}
+                    className={`rounded-lg border px-3 py-1.5 text-sm transition ${
+                      settings.lastDurationMs === preset.ms
+                        ? 'border-accent bg-accent/20 text-ink'
+                        : 'border-border-subtle text-ink-muted hover:bg-ink/5 hover:text-ink'
+                    }`}
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+
+              <Row label="Custom duration" hint={formatDurationLabel(settings.lastDurationMs)}>
+                <div className="flex items-start gap-2">
+                  <NumberField
+                    value={duration.hours}
+                    onChange={(v) => setDurationPart('hours', v)}
+                    max={23}
+                    label="hrs"
+                  />
+                  <NumberField
+                    value={duration.minutes}
+                    onChange={(v) => setDurationPart('minutes', v)}
+                    max={59}
+                    label="min"
+                  />
+                  <NumberField
+                    value={duration.seconds}
+                    onChange={(v) => setDurationPart('seconds', v)}
+                    max={59}
+                    label="sec"
+                  />
+                </div>
+              </Row>
+            </>
+          ) : null}
 
           <Row label="Default label" hint="Shown on the overlay and in notifications.">
             <input
               type="text"
               value={settings.lastLabel ?? ''}
-              placeholder="Focus block"
+              placeholder={isStopwatch ? 'Cooking' : 'Focus block'}
               onChange={(e) => patch({ lastLabel: e.target.value })}
               className={`${inputClass} w-56`}
             />
@@ -260,7 +309,7 @@ export default function SettingsWindow({ snapshot, settings, previewChime }) {
 
           <div className="flex gap-2 border-t border-border-subtle pt-4">
             <Button variant="primary" onClick={() => api.start({ durationMs: settings.lastDurationMs, label: settings.lastLabel })}>
-              Start now
+              {isStopwatch ? 'Start stopwatch' : 'Start now'}
             </Button>
             <Button onClick={() => api.reset()} disabled={snapshot?.state === 'idle'}>
               Reset
@@ -283,7 +332,7 @@ export default function SettingsWindow({ snapshot, settings, previewChime }) {
                   className={`rounded-lg border px-3 py-1.5 text-sm transition ${
                     settings.overlayMode === option.id
                       ? 'border-accent bg-accent/20 text-ink'
-                      : 'border-border-subtle text-ink-muted hover:bg-white/5 hover:text-ink'
+                      : 'border-border-subtle text-ink-muted hover:bg-ink/5 hover:text-ink'
                   }`}
                 >
                   {option.label}

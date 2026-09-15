@@ -68,25 +68,49 @@ Authenticate with `X-API-Key: <token>` or `Authorization: Bearer <token>`.
 |---|---|---|---|
 | `GET` | `/api/health` | — | **No auth.** Confirms which port the app is on. |
 | `GET` | `/api/timer/status` | — | Current snapshot |
-| `POST` | `/api/timer/start` | `{ durationMs?, label? }` | Omit `durationMs` to use the saved default |
+| `POST` | `/api/timer/start` | `{ durationMs?, label?, mode? }` | Omit `durationMs` to use the saved default. `mode` (see below) switches before starting |
 | `POST` | `/api/timer/pause` | — | |
 | `POST` | `/api/timer/resume` | — | |
-| `POST` | `/api/timer/toggle` | — | Start / pause / resume as appropriate |
+| `POST` | `/api/timer/toggle` | — | Start / pause / resume as appropriate — the "one click" verb |
 | `POST` | `/api/timer/reset` | — | |
 | `POST` | `/api/timer/stop` | — | |
+| `POST` | `/api/timer/mode` | `{ mode }` | Switches without starting a run |
 
 Every response is a timer snapshot:
 
 ```json
 {
-  "state": "running",          // idle | running | paused | expired
+  "mode": "timer",              // timer | stopwatch
+  "state": "running",           // idle | running | paused | expired
   "durationMs": 1500000,
   "remainingMs": 1468553,
   "elapsedMs": 31447,
   "label": "Focus block",
-  "expiresAt": 1789470157849,  // epoch ms, null unless running
+  "expiresAt": 1789470157849,   // epoch ms, null unless a timer is running
   "isActive": true
 }
+```
+
+### Timer vs. stopwatch
+
+`mode` picks the direction: **timer** counts down from `durationMs` and fires `timer:expired` at
+zero; **stopwatch** counts up from zero with no ceiling and never expires. Both share every other
+verb — the same `toggle`, `pause`, `resume`, and `reset` drive either one, so a single button (or a
+single `POST /api/timer/toggle`) is genuinely all it takes to start a stopwatch counting up.
+
+In stopwatch mode `remainingMs` mirrors `elapsedMs`, so anything reading `remainingMs` to display
+"the current value" keeps working without a special case; `durationMs` is left at whatever the
+timer was last configured to, simply unused. **Switching `mode` always resets** — there's no
+sensible way to carry a countdown's remaining time into a count-up, so rather than guess at a
+translation it just drops whatever was in progress. The Settings UI and overlay both grey out
+mode-switching while something is running or paused, for exactly that reason; the API itself
+doesn't enforce it, since a script asking to switch presumably means it.
+
+```bash
+# start a stopwatch in one call
+curl -X POST http://127.0.0.1:3000/api/timer/start \
+  -H "X-API-Key: $TOKEN" -H "Content-Type: application/json" \
+  -d '{"mode": "stopwatch", "label": "Cooking"}'
 ```
 
 ### Examples
@@ -216,6 +240,11 @@ A few decisions that are easy to undo by accident:
 
 - **The main process owns all state.** The REST API, the tray, and the UI are three controllers
   over one `TimerEngine`. Nothing keeps a second copy of the countdown.
+
+- **Timer and stopwatch are the same state machine.** Both anchor on a single `Date.now()`
+  timestamp plus whatever was already banked, so `start`/`pause`/`resume`/`reset`/`toggle` don't
+  fork into a parallel implementation for counting up — only the few lines that compute the live
+  value and decide whether zero means anything differ.
 
 - **The preload is CommonJS (`.cjs`).** Sandboxed preload scripts cannot be ES modules, and
   `"type": "module"` in `package.json` would otherwise make a `.js` preload fail to load.

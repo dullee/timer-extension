@@ -140,13 +140,18 @@ export async function startServer({ engine, auth }) {
   })
 
   api.post('/api/timer/start', (req, res) => {
-    const { durationMs, label } = req.body ?? {}
-    // Remember what the API asked for, so the UI reopens with the same value.
-    if (durationMs != null && Number.isFinite(Number(durationMs)) && Number(durationMs) > 0) {
-      store.set('lastDurationMs', Math.round(Number(durationMs)))
-    }
+    const { durationMs, label, mode } = req.body ?? {}
+    // engine.start() throws (RangeError) for a bad durationMs or mode --
+    // let it validate before anything is persisted, then bank whatever
+    // actually took effect so the UI reopens with the same values. Reading
+    // it back off the snapshot rather than the raw input also means a
+    // mode-only call (no durationMs) re-saves the duration that was already
+    // there instead of accidentally clearing it.
+    const snapshot = engine.start({ durationMs, label, mode })
+    store.set('lastDurationMs', snapshot.durationMs)
     if (label != null) store.set('lastLabel', String(label))
-    res.json(engine.start({ durationMs, label }))
+    store.set('lastMode', snapshot.mode)
+    res.json(snapshot)
   })
 
   api.post('/api/timer/pause', (req, res) => res.json(engine.pause()))
@@ -154,6 +159,19 @@ export async function startServer({ engine, auth }) {
   api.post('/api/timer/toggle', (req, res) => res.json(engine.toggle()))
   api.post('/api/timer/reset', (req, res) => res.json(engine.reset()))
   api.post('/api/timer/stop', (req, res) => res.json(engine.stop()))
+
+  // Switches between counting down and counting up without also starting a
+  // run -- e.g. to flip the overlay into stopwatch mode ahead of time.
+  // engine.setMode() throws RangeError for anything else, which the error
+  // middleware below turns into a 400.
+  api.post('/api/timer/mode', (req, res) => {
+    const { mode } = req.body ?? {}
+    // setMode validates and throws RangeError for anything else -- only bank
+    // it as the new default once it's actually taken.
+    const snapshot = engine.setMode(mode)
+    store.set('lastMode', mode)
+    res.json(snapshot)
+  })
 
   api.use('/api', (req, res) => {
     res.status(404).json({ error: 'not_found', message: `No route for ${req.method} ${req.path}` })

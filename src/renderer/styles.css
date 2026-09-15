@@ -4,20 +4,54 @@
  * Tailwind v4 is configured in CSS, not in a tailwind.config.js -- that file
  * is a v3 concept and is simply ignored here. Design tokens go in @theme and
  * become real utilities (bg-surface, text-accent, ...).
+ *
+ * Monochrome, OS-driven: light values live on the bare :root as the default,
+ * and @media (prefers-color-scheme: dark) overrides them. There is no in-app
+ * toggle -- the app is meant to just match whatever the OS is set to -- so
+ * unlike a page that offers both an OS default and a manual override, there's
+ * no data-theme attribute to guard against; the media query is the only
+ * switch. Every token defined once here carries the same name into dark mode,
+ * so nothing in a component ever has to branch on theme itself.
  */
 @theme {
-  --color-surface: #0f172a;
-  --color-surface-raised: #1e293b;
-  --color-surface-input: #0b1220;
-  --color-border-subtle: #334155;
-  --color-accent: #6366f1;
-  --color-accent-bright: #818cf8;
-  --color-ink: #e2e8f0;
-  --color-ink-muted: #94a3b8;
-  --color-danger: #f87171;
-  --color-success: #34d399;
+  --color-surface: #ffffff;
+  --color-surface-raised: #f6f6f7;
+  --color-surface-input: #ffffff;
+  --color-border-subtle: #e3e3e6;
+  --color-accent: #18181b;
+  --color-accent-bright: #3f3f46;
+  /* Text/icon color for anything drawn on top of an accent-filled surface
+     (primary buttons, the toggle knob, selected text) -- accent flips from
+     near-black to near-white between themes, so whatever sits on it must
+     flip the other way to stay legible in both. */
+  --color-on-accent: #ffffff;
+  --color-ink: #18181b;
+  --color-ink-muted: #71717a;
+  --color-danger: #dc2626;
 
   --font-mono: 'Cascadia Mono', 'SF Mono', 'JetBrains Mono', ui-monospace, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  @theme {
+    --color-surface: #0a0a0a;
+    --color-surface-raised: #171717;
+    --color-surface-input: #0a0a0a;
+    --color-border-subtle: #27272a;
+    --color-accent: #fafafa;
+    --color-accent-bright: #d4d4d4;
+    --color-on-accent: #0a0a0a;
+    --color-ink: #f4f4f5;
+    --color-ink-muted: #a1a1aa;
+    --color-danger: #f87171;
+  }
+}
+
+:root {
+  /* Lets native form controls (the volume slider, number spinners) and the
+     default scrollbar pick a matching light/dark rendering on their own,
+     ahead of and independent of the manual scrollbar theming below. */
+  color-scheme: light dark;
 }
 
 /* The overlay window is transparent; anything opaque here would defeat that. */
@@ -45,6 +79,7 @@ body:has(.settings-root) {
 
 .settings-root ::selection {
   background: var(--color-accent);
+  color: var(--color-on-accent);
 }
 
 .settings-root input,
@@ -64,7 +99,7 @@ body:has(.settings-root) {
   -webkit-app-region: no-drag;
 }
 
-/* Scrollbar, tuned for the dark settings window. */
+/* Scrollbar, tuned to the current theme via the same tokens as everything else. */
 .settings-root ::-webkit-scrollbar {
   width: 10px;
 }

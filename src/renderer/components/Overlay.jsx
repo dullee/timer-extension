@@ -8,26 +8,29 @@ import {
   GearIcon,
   PauseIcon,
   PlayIcon,
-  ResetIcon
+  ResetIcon,
+  StopwatchIcon,
+  TimerIcon
 } from './Icons.jsx'
 
 const api = window.timerAPI
 
 const MODE = { FLOATING: 'floating', MINI: 'mini' }
 
-function IconButton({ title, onClick, children, className = '' }) {
+function IconButton({ title, onClick, children, className = '', disabled = false }) {
   return (
     <button
       type="button"
       title={title}
       aria-label={title}
       onClick={onClick}
+      disabled={disabled}
       // .no-drag is mandatory inside a drag region -- without it the window
       // swallows the click and the button simply never fires.
       // shrink-0 matters just as much: the overlay is only ~200px wide, and
       // flex children shrink below their fixed size by default, which silently
       // collapsed these buttons to zero width.
-      className={`no-drag grid shrink-0 place-items-center rounded-md text-ink-muted transition hover:bg-white/10 hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-bright ${className}`}
+      className={`no-drag grid shrink-0 place-items-center rounded-md text-ink-muted transition hover:enabled:bg-ink/10 hover:enabled:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-bright disabled:cursor-not-allowed disabled:opacity-30 ${className}`}
     >
       {children}
     </button>
@@ -48,27 +51,42 @@ export default function Overlay({ snapshot, settings }) {
 
   if (!snapshot) return null
 
-  const { state, remainingMs, durationMs, elapsedMs, label } = snapshot
+  const { state, remainingMs, durationMs, elapsedMs, label, mode: timerMode } = snapshot
   const mode = settings?.overlayMode ?? MODE.FLOATING
   const isMini = mode === MODE.MINI
   const running = state === 'running'
   const expired = state === 'expired'
-  const progress = durationMs > 0 ? elapsedMs / durationMs : 0
+  const isStopwatch = timerMode === 'stopwatch'
+  // A stopwatch has no target to show progress toward, so instead of a fixed
+  // fill this sweeps once a minute like an analog stopwatch's second hand --
+  // motion that reads as "counting up" even before you can make out the digits.
+  const progress = isStopwatch
+    ? (elapsedMs % 60000) / 60000
+    : durationMs > 0
+      ? elapsedMs / durationMs
+      : 0
 
   const toggle = () => api.toggle()
   const reset = () => api.reset()
   const switchMode = () => api.setOverlayMode(isMini ? MODE.FLOATING : MODE.MINI)
+  // Switching mode resets whatever's in progress (there's no sensible way to
+  // carry a countdown's remaining time into a count-up), so it's only offered
+  // once there's nothing to lose -- reset first to switch.
+  const canSwitchTimerMode = state === 'idle' || state === 'expired'
+  const toggleTimerMode = () => {
+    if (canSwitchTimerMode) api.setMode(isStopwatch ? 'timer' : 'stopwatch')
+  }
 
-  const accent = expired
-    ? 'text-success'
-    : state === 'paused'
-      ? 'text-ink-muted'
-      : 'text-ink'
+  // A monochrome palette has no spare hue for "finished" the way the old
+  // green accent did; the pulsing ring plus the full accent-colored ring
+  // below carry that signal instead, so the clock text itself just stays at
+  // full strength (same as running) rather than switching color.
+  const accent = state === 'paused' ? 'text-ink-muted' : 'text-ink'
 
   return (
     <div
-      className={`drag flex h-full w-full flex-col justify-center rounded-2xl border border-white/10 bg-surface/85 px-3 shadow-2xl backdrop-blur-xl ${
-        expired ? 'ring-2 ring-success/60' : ''
+      className={`drag flex h-full w-full flex-col justify-center rounded-2xl border border-ink/10 bg-surface/85 px-3 shadow-2xl backdrop-blur-xl ${
+        expired ? 'ring-2 ring-accent/60' : ''
       }`}
     >
       {/* ---------- top row: always present ---------- */}
@@ -97,7 +115,7 @@ export default function Overlay({ snapshot, settings }) {
           </div>
           {isMini ? (
             <div className="mt-1 truncate text-xs text-ink-muted">
-              {expired ? 'Finished' : label || 'No label'}
+              {expired ? 'Finished' : label || (isStopwatch ? 'Stopwatch' : 'No label')}
             </div>
           ) : null}
         </div>
@@ -106,8 +124,22 @@ export default function Overlay({ snapshot, settings }) {
             just flexes around it. Floating drops its controls into a row
             below instead (see below), so it never needs this here. */}
         {isMini && hovered ? (
-          <div>
+
           <div className="flex shrink-0 items-center gap-0.5">
+            <IconButton
+              title={
+                !canSwitchTimerMode
+                  ? 'Reset first to switch mode'
+                  : isStopwatch
+                    ? 'Switch to timer'
+                    : 'Switch to stopwatch'
+              }
+              onClick={toggleTimerMode}
+              disabled={!canSwitchTimerMode}
+              className={`size-6 ${isStopwatch ? 'text-accent-bright' : ''}`}
+            >
+              {isStopwatch ? <StopwatchIcon className="size-3.5" /> : <TimerIcon className="size-3.5" />}
+            </IconButton>
             <IconButton title="Compact size" onClick={switchMode} className="size-6">
               <CollapseIcon className="size-3" />
             </IconButton>
@@ -121,15 +153,33 @@ export default function Overlay({ snapshot, settings }) {
             >
               <CloseIcon className="size-3.5" />
             </IconButton>
-          </div> </div>
+          </div>
         ) : null}
       </div>
 
       {/* ---------- floating mode: controls row, dropping in from below ---------- */}
       {!isMini && hovered ? (
         <div className="mt-2.5 flex items-center justify-center gap-0.5">
-          <IconButton title={running ? 'Pause' : 'Start'} onClick={toggle} className="size-6">
+          <IconButton
+            title={running ? 'Pause' : isStopwatch ? 'Start stopwatch' : 'Start'}
+            onClick={toggle}
+            className="size-6"
+          >
             {running ? <PauseIcon className="size-3" /> : <PlayIcon className="size-3" />}
+          </IconButton>
+          <IconButton
+            title={
+              !canSwitchTimerMode
+                ? 'Reset first to switch mode'
+                : isStopwatch
+                  ? 'Switch to timer'
+                  : 'Switch to stopwatch'
+            }
+            onClick={toggleTimerMode}
+            disabled={!canSwitchTimerMode}
+            className={`size-6 ${isStopwatch ? 'text-accent-bright' : ''}`}
+          >
+            {isStopwatch ? <StopwatchIcon className="size-3.5" /> : <TimerIcon className="size-3.5" />}
           </IconButton>
           <IconButton title="Expand" onClick={switchMode} className="size-6">
             <ExpandIcon className="size-3" />
@@ -153,16 +203,22 @@ export default function Overlay({ snapshot, settings }) {
           <button
             type="button"
             onClick={toggle}
-            className="no-drag flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white transition hover:bg-accent-bright focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-bright"
+            className="no-drag flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-on-accent transition hover:bg-accent-bright focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-bright"
           >
             {running ? <PauseIcon className="size-3" /> : <PlayIcon className="size-3" />}
-            {running ? 'Pause' : state === 'paused' ? 'Resume' : 'Start'}
+            {running
+              ? 'Pause'
+              : state === 'paused'
+                ? 'Resume'
+                : isStopwatch
+                  ? 'Start stopwatch'
+                  : 'Start'}
           </button>
           <button
             type="button"
             onClick={reset}
             disabled={state === 'idle'}
-            className="no-drag flex items-center justify-center gap-1.5 rounded-lg border border-border-subtle px-3 py-1.5 text-xs text-ink-muted transition hover:bg-white/5 hover:text-ink disabled:opacity-40 disabled:hover:bg-transparent focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-bright"
+            className="no-drag flex items-center justify-center gap-1.5 rounded-lg border border-border-subtle px-3 py-1.5 text-xs text-ink-muted transition hover:bg-ink/5 hover:text-ink disabled:opacity-40 disabled:hover:bg-transparent focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-bright"
           >
             <ResetIcon className="size-3" />
             Reset
