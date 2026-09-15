@@ -1,0 +1,102 @@
+{
+  "name": "timer-desktop",
+  "version": "1.0.0",
+  "description": "Standalone desktop timer with always-on-top overlay and a local REST API",
+  "private": true,
+  "type": "module",
+  "main": "./out/main/main.js",
+  "author": "dulle",
+  "license": "MIT",
+  "scripts": {
+    "assets": "node scripts/generate-assets.mjs",
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "dist": "npm run build && electron-builder",
+    "dist:win": "npm run build && electron-builder -w",
+    "dist:mac": "npm run build && electron-builder -m",
+    "pack": "npm run build && electron-builder --dir"
+  },
+  "dependencies": {
+    "electron-store": "^11.0.2",
+    "express": "^5.2.1",
+    "socket.io": "^4.8.3"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@vitejs/plugin-react": "^4.7.0",
+    "electron": "^44.3.0",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^5.0.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "socket.io-client": "^4.8.3",
+    "tailwindcss": "^4.3.3",
+    "vite": "^7.3.6"
+  },
+  "build": {
+    "appId": "com.dulle.timerdesktop",
+    "productName": "Timer",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "out/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "build/icon.png",
+        "to": "icon.png"
+      }
+    ],
+    "asar": true,
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Timer"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png",
+      "category": "public.app-category.productivity",
+      "darkModeSupport": true,
+      "extendInfo": {
+        "LSUIElement": false
+      }
+    },
+    "dmg": {
+      "title": "Timer ${version}"
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "icon": "build/icon.png",
+      "category": "Utility"
+    }
+  }
+}

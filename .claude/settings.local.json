@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(node \"C:\\\\Users\\\\dulle\\\\Desktop\\\\timer extension\\\\scripts\\\\generate-assets.mjs\")"
+    ]
+  }
+}

@@ -1,0 +1,99 @@
+@import 'tailwindcss';
+
+/*
+ * Tailwind v4 is configured in CSS, not in a tailwind.config.js -- that file
+ * is a v3 concept and is simply ignored here. Design tokens go in @theme and
+ * become real utilities (bg-surface, text-accent, ...).
+ */
+@theme {
+  --color-surface: #0f172a;
+  --color-surface-raised: #1e293b;
+  --color-surface-input: #0b1220;
+  --color-border-subtle: #334155;
+  --color-accent: #6366f1;
+  --color-accent-bright: #818cf8;
+  --color-ink: #e2e8f0;
+  --color-ink-muted: #94a3b8;
+  --color-danger: #f87171;
+  --color-success: #34d399;
+
+  --font-mono: 'Cascadia Mono', 'SF Mono', 'JetBrains Mono', ui-monospace, monospace;
+}
+
+/* The overlay window is transparent; anything opaque here would defeat that. */
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  background: transparent;
+}
+
+body {
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  color: var(--color-ink);
+  /* Text selection and the bounce/overscroll effect both read as bugs in a
+     desktop chrome-less widget. */
+  user-select: none;
+  overscroll-behavior: none;
+}
+
+/* Settings is an ordinary window and should look like one. */
+body:has(.settings-root) {
+  background: var(--color-surface);
+}
+
+.settings-root ::selection {
+  background: var(--color-accent);
+}
+
+.settings-root input,
+.settings-root textarea {
+  user-select: text;
+}
+
+/*
+ * Frameless-window dragging. Anything interactive inside a drag region stops
+ * receiving clicks, so every button must opt back out with .no-drag.
+ */
+.drag {
+  -webkit-app-region: drag;
+}
+
+.no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* Scrollbar, tuned for the dark settings window. */
+.settings-root ::-webkit-scrollbar {
+  width: 10px;
+}
+
+.settings-root ::-webkit-scrollbar-thumb {
+  background: var(--color-border-subtle);
+  border-radius: 9999px;
+}
+
+.settings-root ::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@keyframes pulse-ring {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+.animate-expired {
+  animation: pulse-ring 1.1s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-expired {
+    animation: none;
+  }
+}

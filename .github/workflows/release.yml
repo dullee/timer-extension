@@ -1,0 +1,82 @@
+name: Build installers
+
+# electron-builder cannot produce a macOS .dmg from a Windows machine (it needs
+# macOS tooling to build the disk image), so each target is built on its own
+# runner and the artifacts are collected here.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            name: Windows installer
+            command: npm run dist:win
+            artifact: timer-windows
+            pattern: |
+              dist/*.exe
+              dist/*.exe.blockmap
+          - os: macos-latest
+            name: macOS disk image
+            command: npm run dist:mac
+            artifact: timer-macos
+            pattern: |
+              dist/*.dmg
+              dist/*.dmg.blockmap
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate bundled assets
+        run: npm run assets
+
+      - name: Build and package
+        run: ${{ matrix.command }}
+        env:
+          # Builds are unsigned. Without a certificate electron-builder would
+          # otherwise try (and fail) to discover signing identities on the
+          # runner. Add real signing secrets here when you have them.
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Optional: bake Google OAuth credentials into the release build.
+          MAIN_VITE_GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          MAIN_VITE_GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.pattern }}
+          if-no-files-found: error
+
+  release:
+    name: Attach to release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*
+          generate_release_notes: true
