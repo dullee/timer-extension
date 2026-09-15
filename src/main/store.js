@@ -39,7 +39,12 @@ export const OVERLAY_SIZES = Object.freeze({
 // state never shows.
 export const OVERLAY_COMPACT_SIZES = Object.freeze({
   [OVERLAY_MODE.FLOATING]: { width: 135, height: 90 },
-  [OVERLAY_MODE.MINI]: { width: 100, height: 64 }
+  // Tighter than a straight worst-case-text calculation would need, on
+  // purpose -- with the top row's content centered (see Overlay.jsx), the
+  // gap from window edge to clock is (windowWidth - contentWidth) / 2
+  // regardless of the card's own padding, so this width is the actual knob
+  // for "how much breathing room the compact mini widget has."
+  [OVERLAY_MODE.MINI]: { width: 88, height: 64 }
 })
 
 // Same as above, but with room for the progress ring -- it's off by default

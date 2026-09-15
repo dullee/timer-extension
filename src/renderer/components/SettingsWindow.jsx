@@ -207,7 +207,7 @@ export default function SettingsWindow({ snapshot, settings, previewChime }) {
       <div className="mx-auto max-w-3xl space-y-5 px-6 py-8">
         <header className="flex items-baseline justify-between">
           <div>
-            <h1 className="text-xl font-semibold text-ink">Timer settings</h1>
+            <h1 className="text-xl font-semibold text-ink">Settings</h1>
             <p className="text-sm text-ink-muted">
               Version {settings.appVersion}
               {serverInfo?.port ? ` · API on port ${serverInfo.port}` : ' · API offline'}
