@@ -1,7 +1,11 @@
 {
   "permissions": {
     "allow": [
-      "PowerShell(node \"C:\\\\Users\\\\dulle\\\\Desktop\\\\timer extension\\\\scripts\\\\generate-assets.mjs\")"
+      "PowerShell(node \"C:\\\\Users\\\\dulle\\\\Desktop\\\\timer extension\\\\scripts\\\\generate-assets.mjs\")",
+      "Bash(node -e ' *)",
+      "Bash(taskkill //F //IM electron.exe //T)",
+      "Bash(taskkill //F //IM Timer.exe //T)",
+      "Bash(npm run *)"
     ]
   }
 }

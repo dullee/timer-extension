@@ -356,6 +356,14 @@ export default function SettingsWindow({ snapshot, settings, previewChime }) {
               onChange={(v) => patch({ showOverlayOnStart: v })}
             />
           </Row>
+
+          <Row label="Show progress ring" hint="The circular indicator around the clock. Off by default.">
+            <Toggle
+              label="Show progress ring"
+              checked={settings.showProgressRing}
+              onChange={(v) => patch({ showProgressRing: v })}
+            />
+          </Row>
         </Section>
 
         {/* ------------------------------------------------ sound & notify */}

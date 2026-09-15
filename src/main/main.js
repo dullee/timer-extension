@@ -4,6 +4,7 @@ import { BrowserWindow, Notification, app, ipcMain, nativeTheme, screen, shell }
 import { MODE, STATE, TimerEngine } from './timer-engine.js'
 import {
   OVERLAY_COMPACT_SIZES,
+  OVERLAY_COMPACT_SIZES_WITH_RING,
   OVERLAY_MODE,
   OVERLAY_SIZES,
   getPublicSettings,
@@ -34,6 +35,7 @@ if (!app.requestSingleInstanceLock()) {
 
 let overlayWindow = null
 let settingsWindow = null
+let devLayoutWindow = null // dev builds only -- see createDevLayoutWindow
 let tray = null
 let server = null
 let auth = null
@@ -81,9 +83,33 @@ const sharedWebPreferences = {
   autoplayPolicy: 'no-user-gesture-required'
 }
 
-/** The pointer starts outside the overlay, so it opens at its compact size. */
+// Dev-only window-size overrides, keyed by `${mode}-compact`/`${mode}-hover`.
+// Deliberately in-memory only (resets on relaunch) rather than persisted --
+// this is a developer actively iterating within a session, not a user
+// preference, and it keeps the dev feature from needing its own store file.
+// Never populated outside a dev build: the IPC handlers that write to it are
+// only registered when isDev (see registerDevIpc), so there's no surface for
+// a packaged app to reach this at all.
+const devOverlaySizeOverrides = new Map()
+const devSizeKey = (mode, hovered) => `${mode}-${hovered ? 'hover' : 'compact'}`
+
+/**
+ * The pointer starts outside the overlay, so it opens at its compact size.
+ * The hover-expanded size doesn't depend on the ring -- it's already sized
+ * for the five-button control row, which is wider than ring+clock either
+ * way -- but the compact size is sized tightly around the clock alone, so it
+ * needs the wider variant whenever the ring is also showing.
+ */
 function getOverlaySize(mode, hovered) {
-  const sizes = hovered ? OVERLAY_SIZES : OVERLAY_COMPACT_SIZES
+  if (isDev) {
+    const override = devOverlaySizeOverrides.get(devSizeKey(mode, hovered))
+    if (override) return override
+  }
+  const sizes = hovered
+    ? OVERLAY_SIZES
+    : store.get('showProgressRing')
+      ? OVERLAY_COMPACT_SIZES_WITH_RING
+      : OVERLAY_COMPACT_SIZES
   return sizes[mode] ?? sizes[OVERLAY_MODE.FLOATING]
 }
 
@@ -191,6 +217,40 @@ function createSettingsWindow() {
   return settingsWindow
 }
 
+/**
+ * Dev builds only -- see registerDevIpc, which is the only thing that can
+ * ever call this. A packaged app never opens this window because nothing in
+ * it is reachable: the IPC channel that triggers it simply isn't registered.
+ */
+function createDevLayoutWindow() {
+  if (!isDev) return null
+  if (devLayoutWindow && !devLayoutWindow.isDestroyed()) {
+    devLayoutWindow.show()
+    devLayoutWindow.focus()
+    return devLayoutWindow
+  }
+
+  devLayoutWindow = new BrowserWindow({
+    width: 420,
+    height: 700,
+    minWidth: 360,
+    minHeight: 480,
+    title: 'Dev Layout',
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#0a0a0a' : '#ffffff',
+    show: false,
+    autoHideMenuBar: true,
+    webPreferences: sharedWebPreferences
+  })
+
+  loadRenderer(devLayoutWindow, '/dev-layout')
+  devLayoutWindow.once('ready-to-show', () => devLayoutWindow.show())
+  devLayoutWindow.on('closed', () => {
+    devLayoutWindow = null
+  })
+
+  return devLayoutWindow
+}
+
 function applyAlwaysOnTop(value) {
   if (!overlayWindow || overlayWindow.isDestroyed()) return
   // 'screen-saver' is the level that actually floats above fullscreen apps;
@@ -203,20 +263,78 @@ function applyAlwaysOnTop(value) {
   }
 }
 
+// How long the compact <-> expanded resize takes to settle. Short enough
+// that hovering still feels responsive, long enough to read as a glide
+// rather than a snap.
+const RESIZE_ANIMATION_MS = 180
+
+let resizeAnimation = null
+
 /**
+ * Animates the overlay to `size`, growing or shrinking from wherever it
+ * currently sits.
+ *
+ * setBounds() takes an `animate` flag, but that's macOS-only -- Windows and
+ * Linux ignore it and just jump, which is what this replaces. Driving it by
+ * hand with repeated setBounds() calls on an eased timeline looks the same
+ * on every platform instead of smooth on one and instant on the other two.
+ *
  * On Windows, a BrowserWindow created with resizable: false has its min/max
  * size locked to its creation size -- a later setBounds with a different
  * width/height updates Electron's internal bounds (and so the content
  * re-layouts to it) but the OS silently clamps the actual on-screen frame
  * back, since it's still constrained to that old min==max. Toggling
- * resizable around the call forces Windows to accept the new size.
+ * resizable once for the whole animation (not per frame, which would
+ * flicker) forces Windows to accept the new size.
  */
-function resizeOverlayTo(size) {
+function animateOverlayTo(size) {
   if (!overlayWindow || overlayWindow.isDestroyed()) return
-  const { x, y } = overlayWindow.getBounds()
+
+  // A resize that arrives mid-animation (rapid hover in/out) always
+  // redirects from the window's actual current position rather than
+  // queuing behind or fighting the one already in flight -- the same feel
+  // as interrupting a CSS transition with a new target value.
+  if (resizeAnimation) {
+    clearInterval(resizeAnimation)
+    resizeAnimation = null
+  }
+
+  const { x, y, width: fromWidth, height: fromHeight } = overlayWindow.getBounds()
+  const { width: toWidth, height: toHeight } = size
+  if (fromWidth === toWidth && fromHeight === toHeight) return
+
   overlayWindow.setResizable(true)
-  overlayWindow.setBounds({ x, y, width: size.width, height: size.height }, false)
-  overlayWindow.setResizable(false)
+
+  const startedAt = Date.now()
+  const easeOutCubic = (t) => 1 - (1 - t) ** 3
+
+  resizeAnimation = setInterval(() => {
+    if (!overlayWindow || overlayWindow.isDestroyed()) {
+      clearInterval(resizeAnimation)
+      resizeAnimation = null
+      return
+    }
+
+    const t = Math.min(1, (Date.now() - startedAt) / RESIZE_ANIMATION_MS)
+    const eased = easeOutCubic(t)
+
+    overlayWindow.setBounds(
+      {
+        x,
+        y,
+        width: Math.round(fromWidth + (toWidth - fromWidth) * eased),
+        height: Math.round(fromHeight + (toHeight - fromHeight) * eased)
+      },
+      false
+    )
+
+    if (t >= 1) {
+      clearInterval(resizeAnimation)
+      resizeAnimation = null
+      overlayWindow.setResizable(false)
+    }
+  }, 1000 / 60)
+  resizeAnimation.unref?.()
 }
 
 function setOverlayMode(mode) {
@@ -224,7 +342,7 @@ function setOverlayMode(mode) {
   store.set('overlayMode', mode)
 
   if (overlayWindow && !overlayWindow.isDestroyed()) {
-    resizeOverlayTo(getOverlaySize(mode, overlayHovered))
+    animateOverlayTo(getOverlaySize(mode, overlayHovered))
   }
 
   broadcast('settings:changed', getPublicSettings())
@@ -253,7 +371,7 @@ function pollOverlayHover() {
 
   if (inside !== overlayHovered) {
     overlayHovered = inside
-    resizeOverlayTo(getOverlaySize(store.get('overlayMode'), overlayHovered))
+    animateOverlayTo(getOverlaySize(store.get('overlayMode'), overlayHovered))
     overlayWindow.webContents.send('overlay:hover', overlayHovered)
   }
 }
@@ -361,6 +479,13 @@ function registerIpc() {
     if ('overlayMode' in patch) setOverlayMode(patch.overlayMode)
     if ('lastDurationMs' in patch) engine.setDuration(patch.lastDurationMs)
     if ('lastMode' in patch) setTimerMode(patch.lastMode)
+    // The compact width depends on whether the ring is showing (see
+    // getOverlaySize) -- resize now rather than waiting for the next hover
+    // transition, or the window would sit at the old width until the user
+    // happens to move the mouse over it.
+    if ('showProgressRing' in patch && overlayWindow && !overlayWindow.isDestroyed()) {
+      animateOverlayTo(getOverlaySize(store.get('overlayMode'), overlayHovered))
+    }
     broadcast('settings:changed', next)
     tray?.refresh()
     return next
@@ -409,6 +534,46 @@ function registerIpc() {
   ipcMain.handle('google:disconnect', () => auth.signOut())
   ipcMain.handle('google:list-task-lists', () => auth.listTaskLists())
   ipcMain.handle('google:list-tasks', (_e, taskListId) => auth.listTasks(taskListId))
+}
+
+/**
+ * Only called when isDev -- a packaged app never registers these channels at
+ * all, not even disabled ones, so `ipcRenderer.invoke('dev:...')` from a
+ * shipped build simply fails with "no handler registered" rather than
+ * reaching anything.
+ */
+function registerDevIpc() {
+  ipcMain.handle('window:open-dev-layout', () => {
+    createDevLayoutWindow()
+  })
+
+  ipcMain.handle('dev:get-overlay-size-overrides', () => Object.fromEntries(devOverlaySizeOverrides))
+
+  ipcMain.handle('dev:set-overlay-size-override', (_e, { mode, hovered, size } = {}) => {
+    const key = devSizeKey(mode, hovered)
+    if (size) devOverlaySizeOverrides.set(key, size)
+    else devOverlaySizeOverrides.delete(key)
+
+    // Live preview: only worth an immediate resize if the override that just
+    // changed is the one actually on screen right now.
+    if (
+      overlayWindow &&
+      !overlayWindow.isDestroyed() &&
+      store.get('overlayMode') === mode &&
+      overlayHovered === hovered
+    ) {
+      animateOverlayTo(getOverlaySize(mode, hovered))
+    }
+
+    return Object.fromEntries(devOverlaySizeOverrides)
+  })
+
+  ipcMain.handle('dev:reset-overlay-size-overrides', () => {
+    devOverlaySizeOverrides.clear()
+    if (overlayWindow && !overlayWindow.isDestroyed()) {
+      animateOverlayTo(getOverlaySize(store.get('overlayMode'), overlayHovered))
+    }
+  })
 }
 
 /* --------------------------------------------------------------- engine */
@@ -466,6 +631,7 @@ app.whenReady().then(async () => {
   }
 
   registerIpc()
+  if (isDev) registerDevIpc()
   wireEngine()
   createOverlayWindow()
   setInterval(pollOverlayHover, 100)

@@ -7,21 +7,48 @@ export const OVERLAY_MODE = Object.freeze({
   MINI: 'mini'
 })
 
+// The third design-tokens location, alongside src/renderer/styles.css
+// (colors, shape, density, type scale) and src/renderer/lib/theme.js (ring
+// sizes) -- window pixel dimensions have to live here specifically because
+// they're passed to BrowserWindow in the main process, which has no access
+// to the renderer's CSS. All three files cross-reference each other.
+//
+// Mini is the small, icon-only widget; floating is the larger one with a
+// label and full-width transport buttons -- floating "floats fuller" is the
+// mnemonic, if the names ever feel arbitrary. (They're just the two
+// enum values; nothing stops you renaming them if you want the names
+// themselves to say big/small -- see Overlay.jsx's `isMini` for the one
+// other place that would need to follow.)
+//
 // Size while the pointer is over the overlay, controls included. Both modes
 // drop their controls into a row *below* the clock rather than widening, so
 // only the height grows -- sized for the worst case the clock can produce
 // ("1:05:04"), so the fixed-width row never has to squeeze or overlap.
 export const OVERLAY_SIZES = Object.freeze({
-  [OVERLAY_MODE.FLOATING]: { width: 170, height: 100 },
-  [OVERLAY_MODE.MINI]: { width: 330, height: 132 }
+  [OVERLAY_MODE.FLOATING]: { width: 330, height: 132 },
+  [OVERLAY_MODE.MINI]: { width: 170, height: 100 }
 })
 
 // Size while the pointer is elsewhere: the overlay hides its controls, so
-// the window shrinks to just the clock (and, in mini, the label) rather than
-// leaving dead space where the buttons would have been.
+// the window shrinks to just the clock (and, in floating, the label) rather
+// than leaving dead space where the buttons would have been. Width is sized
+// to the worst case the clock can produce ("1:05:04"), measured against the
+// actual rendered font at each mode's clock size (text-2xl / text-base) plus
+// the card's px-3 padding -- not the wider hover-state width, which only has
+// to be that wide to fit the five-button control row, something the compact
+// state never shows.
 export const OVERLAY_COMPACT_SIZES = Object.freeze({
-  [OVERLAY_MODE.FLOATING]: { width: 170, height: 64 },
-  [OVERLAY_MODE.MINI]: { width: 330, height: 90 }
+  [OVERLAY_MODE.FLOATING]: { width: 135, height: 90 },
+  [OVERLAY_MODE.MINI]: { width: 100, height: 64 }
+})
+
+// Same as above, but with room for the progress ring -- it's off by default
+// (see `showProgressRing`), but when it's on it sits to the left of the
+// clock and needs its own diameter plus the gap-2 between them accounted
+// for, or it would get clipped at the narrower default compact width.
+export const OVERLAY_COMPACT_SIZES_WITH_RING = Object.freeze({
+  [OVERLAY_MODE.FLOATING]: { width: 185, height: 90 },
+  [OVERLAY_MODE.MINI]: { width: 140, height: 64 }
 })
 
 const schema = {
@@ -32,7 +59,7 @@ const schema = {
   // so this doubles as both "what the next run defaults to" and "what's
   // running right now" -- the same relationship overlayMode already has to
   // the overlay window's live size.
-  lastMode: { type: 'string', enum: ['timer', 'stopwatch'], default: 'timer' },
+  lastMode: { type: 'string', enum: ['timer', 'stopwatch'], default: 'stopwatch' },
   overlayMode: {
     type: 'string',
     enum: [OVERLAY_MODE.FLOATING, OVERLAY_MODE.MINI],
@@ -45,6 +72,7 @@ const schema = {
   },
   alwaysOnTop: { type: 'boolean', default: true },
   showOverlayOnStart: { type: 'boolean', default: true },
+  showProgressRing: { type: 'boolean', default: false },
   volume: { type: 'number', minimum: 0, maximum: 1, default: 0.7 },
   soundEnabled: { type: 'boolean', default: true },
   notificationsEnabled: { type: 'boolean', default: true },
@@ -150,6 +178,7 @@ export function getPublicSettings() {
     overlayMode: store.get('overlayMode'),
     alwaysOnTop: store.get('alwaysOnTop'),
     showOverlayOnStart: store.get('showOverlayOnStart'),
+    showProgressRing: store.get('showProgressRing'),
     volume: store.get('volume'),
     soundEnabled: store.get('soundEnabled'),
     notificationsEnabled: store.get('notificationsEnabled'),
@@ -161,7 +190,11 @@ export function getPublicSettings() {
     taskId: store.get('taskId'),
     tokenStorageEncrypted: isTokenStorageEncrypted(),
     appVersion: app.getVersion(),
-    userDataPath: app.getPath('userData')
+    userDataPath: app.getPath('userData'),
+    // Computed, never persisted -- gates the dev-only Layout window and its
+    // toggle button. A packaged install is never "not packaged," so this is
+    // always false in anything a user actually installs.
+    isDev: !app.isPackaged
   }
 }
 
@@ -172,6 +205,7 @@ const WRITABLE_SETTINGS = new Set([
   'overlayMode',
   'alwaysOnTop',
   'showOverlayOnStart',
+  'showProgressRing',
   'volume',
   'soundEnabled',
   'notificationsEnabled',

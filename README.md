@@ -230,6 +230,25 @@ scripts/
   generate-assets.mjs  synthesizes chime.wav and icon.png from scratch
 ```
 
+### Customizing the look
+
+Three files, each holding the tokens the other two can't reach (colors are CSS, window
+dimensions are a main-process/Electron concern, and a handful of values are numeric React props
+rather than classes) -- edit, save, and `npm run dev`'s hot reload shows it instantly for the two
+renderer files; window sizes need a relaunch since Electron doesn't hot-reload the main process.
+
+| File | Controls | Example |
+|---|---|---|
+| [`src/renderer/styles.css`](src/renderer/styles.css) | Colors (light + dark), corner radius, backdrop blur, spacing density, type scale | Raise `--spacing` to make every gap, button, and icon in the app bigger at once |
+| [`src/renderer/lib/theme.js`](src/renderer/lib/theme.js) | The few numbers that have to be JS, not a class -- currently just the progress ring's pixel size and stroke width | `RING_SIZE.mini` |
+| [`src/main/store.js`](src/main/store.js) | The overlay window's actual pixel dimensions (`OVERLAY_SIZES`, `OVERLAY_COMPACT_SIZES`) | Widen the floating overlay |
+
+Most of `styles.css`'s tokens (radius, blur, type scale) are Tailwind's own built-in scale keys
+(`rounded-lg` already reads `--radius-lg`) rather than app-specific inventions -- they're named
+explicitly so the values are sitting in one visible file instead of an implicit default buried in
+`node_modules`. Changing one of them updates every component that already uses the matching
+Tailwind utility, with no component code to touch.
+
 ### Design notes
 
 A few decisions that are easy to undo by accident:

@@ -72,6 +72,21 @@ const api = {
       ipcRenderer.on('google:status-changed', handler)
       return () => ipcRenderer.removeListener('google:status-changed', handler)
     }
+  },
+
+  /* ---------------------------------------------------------------- dev */
+  // Harmless to expose unconditionally: the main process only registers
+  // these channels at all when running unpackaged (see registerDevIpc in
+  // main.js), so a call from a packaged build just fails cleanly with "no
+  // handler registered" rather than reaching anything. The renderer decides
+  // whether to show any of this UI off settings.isDev, which main.js also
+  // only ever reports true for an unpackaged build.
+  dev: {
+    openLayoutWindow: () => ipcRenderer.invoke('window:open-dev-layout'),
+    getOverlaySizeOverrides: () => ipcRenderer.invoke('dev:get-overlay-size-overrides'),
+    setOverlaySizeOverride: (mode, hovered, size) =>
+      ipcRenderer.invoke('dev:set-overlay-size-override', { mode, hovered, size }),
+    resetOverlaySizeOverrides: () => ipcRenderer.invoke('dev:reset-overlay-size-overrides')
   }
 }
 

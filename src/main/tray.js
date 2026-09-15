@@ -93,13 +93,13 @@ export function createTray({ engine, controls }) {
         label: 'Overlay size',
         submenu: [
           {
-            label: 'Floating (compact)',
+            label: 'Floating (expanded)',
             type: 'radio',
             checked: overlayMode === OVERLAY_MODE.FLOATING,
             click: () => controls.setOverlayMode(OVERLAY_MODE.FLOATING)
           },
           {
-            label: 'Mini (expanded)',
+            label: 'Mini (compact)',
             type: 'radio',
             checked: overlayMode === OVERLAY_MODE.MINI,
             click: () => controls.setOverlayMode(OVERLAY_MODE.MINI)

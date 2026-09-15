@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(taskkill //F //IM electron.exe //T)",
+      "Bash(npm run *)",
+      "Bash(node \"/c/Users/dulle/AppData/Local/Temp/claude/c--Users-dulle-Desktop-timer-extension/5993a98a-8bd7-4712-841a-5c96831e2774/scratchpad/poll-modeswitch.mjs\")"
+    ]
+  }
+}

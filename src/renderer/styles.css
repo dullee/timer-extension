@@ -5,6 +5,13 @@
  * is a v3 concept and is simply ignored here. Design tokens go in @theme and
  * become real utilities (bg-surface, text-accent, ...).
  *
+ * This is one of three design-tokens locations -- the other two are
+ * src/renderer/lib/theme.js (numeric props that can't be a Tailwind class,
+ * like the progress ring's pixel size) and src/main/store.js's OVERLAY_SIZES
+ * (the overlay window's actual pixel dimensions, set in the main process,
+ * which has no access to this file at all). All three cross-reference each
+ * other in comments.
+ *
  * Monochrome, OS-driven: light values live on the bare :root as the default,
  * and @media (prefers-color-scheme: dark) overrides them. There is no in-app
  * toggle -- the app is meant to just match whatever the OS is set to -- so
@@ -30,10 +37,63 @@
   --color-danger: #dc2626;
 
   --font-mono: 'Cascadia Mono', 'SF Mono', 'JetBrains Mono', ui-monospace, monospace;
+
+  /*
+   * --------------------------------------------------------------- shape --
+   * These are Tailwind's own scale keys (rounded-md/lg/xl/2xl already read
+   * --radius-md/lg/xl/2xl; backdrop-blur-xl already reads --blur-xl) -- they
+   * exist implicitly with sensible defaults even if never declared here.
+   * Naming them explicitly doesn't change how anything looks; it just moves
+   * the numbers you'd otherwise have to go find in node_modules into one
+   * visible, editable spot. Change one line, every rounded-lg (buttons,
+   * inputs, tabs) or rounded-2xl (the overlay card) in the app follows.
+   */
+  --radius-md: 0.375rem; /* small icon buttons */
+  --radius-lg: 0.5rem; /* buttons, inputs, pill tabs */
+  --radius-xl: 0.75rem; /* Settings section cards */
+  --radius-2xl: 1rem; /* the overlay card itself */
+  --blur-xl: 24px; /* the overlay's frosted-glass backdrop blur */
+
+  /*
+   * -------------------------------------------------------------- density --
+   * The single knob behind every padding/margin/gap/size-* utility in the
+   * app (`px-3` is literally `calc(var(--spacing) * 3)`). Raising this makes
+   * every control, gap, and icon bigger at once without touching a single
+   * component -- the fastest way to try "a chunkier overlay" or "a more
+   * compact Settings window."
+   */
+  --spacing: 0.25rem;
+
+  /*
+   * ----------------------------------------------------------- type scale --
+   * Same story as shape: these already exist as Tailwind's built-in
+   * text-xs/sm/base/xl/2xl values. Named here so the whole type scale the
+   * app uses is visible at a glance instead of split between five different
+   * implicit defaults.
+   */
+  --text-xs: 0.75rem; /* labels, hints, the mini-mode sublabel */
+  --text-sm: 0.875rem; /* body copy in Settings */
+  --text-base: 1rem; /* the floating overlay's clock */
+  --text-xl: 1.25rem; /* the Settings window title */
+  --text-2xl: 1.5rem; /* the mini overlay's clock */
 }
 
+/*
+ * Deliberately a plain :root block, not another @theme. @theme is a
+ * build-time Tailwind directive -- Tailwind reads it while compiling and
+ * bakes the result into one static ruleset, so an @theme nested inside this
+ * @media block doesn't survive as a media-gated override; it just becomes a
+ * second, later definition of the same custom properties that silently wins
+ * at build time regardless of the browser's actual color scheme. A plain
+ * :root re-declaration of the same --color-* custom properties is ordinary
+ * CSS the browser resolves itself, live, against prefers-color-scheme -- and
+ * every utility Tailwind generated from @theme above (bg-surface, text-ink,
+ * ...) already reads these through var(--color-surface) etc., so redeclaring
+ * them here is enough to retheme every one of those classes with no further
+ * per-component change.
+ */
 @media (prefers-color-scheme: dark) {
-  @theme {
+  :root {
     --color-surface: #0a0a0a;
     --color-surface-raised: #171717;
     --color-surface-input: #0a0a0a;

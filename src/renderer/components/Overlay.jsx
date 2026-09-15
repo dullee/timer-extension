@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { formatClock } from '../lib/format.js'
+import { RING_SIZE, RING_STROKE } from '../lib/theme.js'
+import { useDevLayoutSync } from '../hooks/useDevLayout.js'
 import ProgressRing from './ProgressRing.jsx'
 import {
   CloseIcon,
@@ -9,6 +11,7 @@ import {
   PauseIcon,
   PlayIcon,
   ResetIcon,
+  SlidersIcon,
   StopwatchIcon,
   TimerIcon
 } from './Icons.jsx'
@@ -49,11 +52,27 @@ export default function Overlay({ snapshot, settings }) {
   // so hover is tracked from the main process instead of onMouseEnter/Leave.
   useEffect(() => api.onOverlayHoverChanged(setHovered), [])
 
+  // Dev builds only, in effect: applies whatever's in the Dev Layout window's
+  // localStorage (nothing, normally) as CSS custom properties on this
+  // window's root, and keeps re-applying live if that window changes one.
+  // Every var(--dev-*, <default>) below falls back to the exact stock value
+  // when nothing's been set, so this is a no-op for anyone who never opens
+  // that window -- which in a packaged build is everyone, since it doesn't
+  // exist there.
+  useDevLayoutSync()
+
   if (!snapshot) return null
 
   const { state, remainingMs, durationMs, elapsedMs, label, mode: timerMode } = snapshot
   const mode = settings?.overlayMode ?? MODE.FLOATING
-  const isMini = mode === MODE.MINI
+  // `isMini` gates the *richer* layout below (label, full-width transport
+  // buttons, bigger clock/ring) -- and floating is now the bigger of the two
+  // modes, not mini (see the OVERLAY_SIZES comment in store.js), so this
+  // checks FLOATING despite the variable's name still reading like it should
+  // check MINI. Every `isMini ? richContent : simpleContent` below stays
+  // correct as long as this one line points at whichever mode is actually
+  // the bigger one.
+  const isMini = mode === MODE.FLOATING
   const running = state === 'running'
   const expired = state === 'expired'
   const isStopwatch = timerMode === 'stopwatch'
@@ -68,7 +87,10 @@ export default function Overlay({ snapshot, settings }) {
 
   const toggle = () => api.toggle()
   const reset = () => api.reset()
-  const switchMode = () => api.setOverlayMode(isMini ? MODE.FLOATING : MODE.MINI)
+  // Toggles to whichever mode isn't current -- has to be re-derived from
+  // isMini's new meaning above, or this would set mode back to what it
+  // already is instead of switching.
+  const switchMode = () => api.setOverlayMode(isMini ? MODE.MINI : MODE.FLOATING)
   // Switching mode resets whatever's in progress (there's no sensible way to
   // carry a countdown's remaining time into a count-up), so it's only offered
   // once there's nothing to lose -- reset first to switch.
@@ -85,18 +107,32 @@ export default function Overlay({ snapshot, settings }) {
 
   return (
     <div
-      className={`drag flex h-full w-full flex-col justify-center rounded-2xl border border-ink/10 bg-surface/85 px-3 shadow-2xl backdrop-blur-xl ${
+      className={`drag flex h-full w-full flex-col justify-center rounded-2xl border border-ink/10 bg-surface/85 px-[var(--dev-card-padding-x,0.75rem)] shadow-2xl backdrop-blur-xl ${
         expired ? 'ring-2 ring-accent/60' : ''
       }`}
     >
       {/* ---------- top row: always present ---------- */}
-      <div className="flex items-center gap-2 overflow-hidden">
-        <ProgressRing
-          progress={expired ? 1 : progress}
-          size={isMini ? 40 : 32}
-          stroke={3}
-          className={expired ? 'animate-expired' : ''}
-        />
+      {/*
+        justify-center matters here: the window is a fixed width sized for
+        the worst-case clock text ("1:05:04"), so any shorter time (which is
+        most of the time) leaves leftover space in this row. Left-aligned
+        (the flex default), that space all piles up on the right and reads
+        as lopsided padding even though px-3 above is genuinely symmetric.
+        Centering splits it evenly instead.
+      */}
+      <div className="flex items-center justify-center gap-[var(--dev-top-gap,0.5rem)] overflow-hidden">
+        {/* Off by default -- omitted entirely rather than just hidden, so the
+            clock claims the freed-up space instead of leaving a gap where the
+            ring used to be. The "finished" cue doesn't disappear with it: the
+            card's own ring-accent border (below) still pulses either way. */}
+        {settings?.showProgressRing ? (
+          <ProgressRing
+            progress={expired ? 1 : progress}
+            size={isMini ? RING_SIZE.mini : RING_SIZE.floating}
+            stroke={RING_STROKE}
+            className={expired ? 'animate-expired' : ''}
+          />
+        ) : null}
 
         {/*
           The clock is shrink-0 on purpose. As a flex-1 child it collapsed to a
@@ -105,7 +141,7 @@ export default function Overlay({ snapshot, settings }) {
           The window is a fixed size, so the countdown claims what it needs and
           the spacer below absorbs whatever is left.
         */}
-        <div className={`shrink-0 ${isMini ? 'min-w-0 flex-1' : ''}`}>
+        <div className={`shrink-0 ${isMini ? 'min-w-0' : ''}`}>
           <div
             className={`font-mono tabular-nums whitespace-nowrap leading-none ${accent} ${
               isMini ? 'text-2xl' : 'text-base'
@@ -114,18 +150,18 @@ export default function Overlay({ snapshot, settings }) {
             {formatClock(remainingMs)}
           </div>
           {isMini ? (
-            <div className="mt-1 truncate text-xs text-ink-muted">
+            <div className="mt-[var(--dev-label-margin-top,0.25rem)] truncate text-xs text-ink-muted">
               {expired ? 'Finished' : label || (isStopwatch ? 'Stopwatch' : 'No label')}
             </div>
           ) : null}
         </div>
 
-        {/* Mini keeps its icon row inline -- the clock area is flex-1, so it
-            just flexes around it. Floating drops its controls into a row
+        {/* Floating keeps its icon row inline -- the clock area is flex-1, so
+            it just flexes around it. Mini drops its controls into a row
             below instead (see below), so it never needs this here. */}
         {isMini && hovered ? (
 
-          <div className="flex shrink-0 items-center gap-0.5">
+          <div className="flex shrink-0 items-center gap-[var(--dev-icon-gap,0.125rem)]">
             <IconButton
               title={
                 !canSwitchTimerMode
@@ -146,6 +182,11 @@ export default function Overlay({ snapshot, settings }) {
             <IconButton title="Settings" onClick={() => api.openSettings()} className="size-6">
               <GearIcon className="size-3.5" />
             </IconButton>
+            {settings?.isDev ? (
+              <IconButton title="Dev layout" onClick={() => api.dev.openLayoutWindow()} className="size-6">
+                <SlidersIcon className="size-3.5" />
+              </IconButton>
+            ) : null}
             <IconButton
               title="Hide overlay (stays in the tray)"
               onClick={() => api.hideOverlay()}
@@ -157,9 +198,9 @@ export default function Overlay({ snapshot, settings }) {
         ) : null}
       </div>
 
-      {/* ---------- floating mode: controls row, dropping in from below ---------- */}
+      {/* ---------- mini mode: controls row, dropping in from below ---------- */}
       {!isMini && hovered ? (
-        <div className="mt-2.5 flex items-center justify-center gap-0.5">
+        <div className="mt-[var(--dev-controls-margin-top,0.625rem)] flex items-center justify-[var(--dev-controls-justify,center)] gap-[var(--dev-icon-gap,0.125rem)]">
           <IconButton
             title={running ? 'Pause' : isStopwatch ? 'Start stopwatch' : 'Start'}
             onClick={toggle}
@@ -187,6 +228,11 @@ export default function Overlay({ snapshot, settings }) {
           <IconButton title="Settings" onClick={() => api.openSettings()} className="size-6">
             <GearIcon className="size-3.5" />
           </IconButton>
+          {settings?.isDev ? (
+            <IconButton title="Dev layout" onClick={() => api.dev.openLayoutWindow()} className="size-6">
+              <SlidersIcon className="size-3.5" />
+            </IconButton>
+          ) : null}
           <IconButton
             title="Hide overlay (stays in the tray)"
             onClick={() => api.hideOverlay()}
@@ -197,9 +243,13 @@ export default function Overlay({ snapshot, settings }) {
         </div>
       ) : null}
 
-      {/* ---------- mini mode: full transport controls ---------- */}
+      {/* ---------- floating mode: full transport controls ---------- */}
       {isMini && hovered ? (
-        <div className="mt-2.5 flex items-center gap-2">
+        <div className="mt-[var(--dev-controls-margin-top,0.625rem)] flex items-center gap-[var(--dev-transport-gap,0.5rem)]">
+          {/* flex-1 so the primary button fills whatever the (fixed-width)
+              Reset button doesn't -- without it the pair sits at their
+              natural small width, left-aligned, leaving a large empty gap
+              on the right that reads as lopsided padding. */}
           <button
             type="button"
             onClick={toggle}

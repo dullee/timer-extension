@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react'
+import DevLayoutWindow from './components/DevLayoutWindow.jsx'
 import Overlay from './components/Overlay.jsx'
 import SettingsWindow from './components/SettingsWindow.jsx'
 import { useExpiryChime, useSettings, useTimerState } from './hooks/useTimer.js'
 
 /**
- * Both windows load the same bundle and pick their view from the URL hash
- * (`#/overlay`, `#/settings`), which is why main.js appends one when loading.
- * One bundle means one build and shared state plumbing.
+ * All three windows load the same bundle and pick their view from the URL
+ * hash (`#/overlay`, `#/settings`, `#/dev-layout`), which is why main.js
+ * appends one when loading. One bundle means one build and shared state
+ * plumbing.
  */
 function useRoute() {
   const read = () => window.location.hash.replace(/^#/, '') || '/overlay'
@@ -33,6 +35,10 @@ export default function App() {
 
   if (isSettings) {
     return <SettingsWindow snapshot={snapshot} settings={settings} previewChime={previewChime} />
+  }
+
+  if (route.startsWith('/dev-layout')) {
+    return <DevLayoutWindow />
   }
 
   return <Overlay snapshot={snapshot} settings={settings} />
