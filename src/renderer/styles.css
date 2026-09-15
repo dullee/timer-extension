@@ -121,6 +121,17 @@ body,
   height: 100%;
   margin: 0;
   background: transparent;
+  /*
+   * Content changes size instantly (React re-renders the moment the
+   * 'overlay:hover' IPC event arrives), but the actual OS window grows over
+   * ~180ms (see animateOverlayTo in main.js) -- for those first frames the
+   * now-larger DOM is briefly taller/wider than the still-small window,
+   * which the browser shows as a scrollbar until the window catches up.
+   * The overlay never legitimately scrolls, so just never show one; Settings
+   * and Dev Layout still scroll fine, since that happens on their own
+   * nested .settings-root element (overflow-y-auto), not on html/body.
+   */
+  overflow: hidden;
 }
 
 body {

@@ -153,6 +153,14 @@ function createOverlayWindow() {
   // substitute the clamped bounds before the move ever happens -- the
   // window can then never actually leave the screen, on any edge.
   overlayWindow.on('will-move', (event, newBounds) => {
+    // 'will-move' only ever fires for this kind of interactive, OS-driven
+    // drag -- not for our own setBounds() calls -- so it doubles as a clean
+    // "currently being dragged" signal. See markDragging below for why that
+    // matters: the hover poll needs to go quiet for the whole drag, not
+    // just react to whatever momentary detail is happening on each 100ms
+    // tick.
+    markDragging()
+
     const { workArea } = screen.getDisplayMatching(newBounds)
     const x = Math.min(Math.max(newBounds.x, workArea.x), workArea.x + workArea.width - newBounds.width)
     const y = Math.min(Math.max(newBounds.y, workArea.y), workArea.y + workArea.height - newBounds.height)
@@ -303,6 +311,22 @@ function animateOverlayTo(size) {
   const { width: toWidth, height: toHeight } = size
   if (fromWidth === toWidth && fromHeight === toHeight) return
 
+  // If the window is flush against the screen's right and/or bottom edge,
+  // keep that edge pinned as the size changes -- otherwise a resize always
+  // keeps x/y fixed (see the interpolation below), which pins the *left*/
+  // *top* edge instead and visibly detaches a right- or bottom-docked widget
+  // from the edge it was parked against. Left/top docking needs no special
+  // case: keeping x/y fixed is already exactly what pins those edges.
+  // EDGE_TOLERANCE absorbs rounding -- the will-move handler above produces
+  // an exact match when the user actually drags the window flush against an
+  // edge.
+  const EDGE_TOLERANCE = 2
+  const { workArea } = screen.getDisplayMatching({ x, y, width: fromWidth, height: fromHeight })
+  const dockedRight = x + fromWidth >= workArea.x + workArea.width - EDGE_TOLERANCE
+  const dockedBottom = y + fromHeight >= workArea.y + workArea.height - EDGE_TOLERANCE
+  const toX = dockedRight ? workArea.x + workArea.width - toWidth : x
+  const toY = dockedBottom ? workArea.y + workArea.height - toHeight : y
+
   overlayWindow.setResizable(true)
 
   const startedAt = Date.now()
@@ -320,8 +344,12 @@ function animateOverlayTo(size) {
 
     overlayWindow.setBounds(
       {
-        x,
-        y,
+        // Animated on the same eased timeline as width/height so all four
+        // finish together. A no-op (x === toX / y === toY) for an edge that
+        // isn't docked -- only a right- or bottom-docked window actually
+        // moves along that axis.
+        x: Math.round(x + (toX - x) * eased),
+        y: Math.round(y + (toY - y) * eased),
         width: Math.round(fromWidth + (toWidth - fromWidth) * eased),
         height: Math.round(fromHeight + (toHeight - fromHeight) * eased)
       },
@@ -357,13 +385,45 @@ function setOverlayMode(mode) {
  * buttons. Polling the cursor against the window bounds sidesteps that, and
  * also drives the resize between the compact and full-controls sizes so the
  * hidden buttons don't just leave dead space behind.
+ *
+ * That resize is exactly what goes wrong during an actual drag: dragging
+ * moves the window from under a cursor that mostly stays put relative to
+ * the screen, so a fast or diagonal drag routinely puts the cursor outside
+ * the window's own bounds for a tick or two even though the user is still
+ * holding it -- not a real "mouse left the widget." Reacting to that by
+ * shrinking mid-drag fights the OS's own drag-move for control of the same
+ * window, which is the visible glitching, and can flip hover on and off
+ * repeatedly as the shrink/grow itself shifts the window under the cursor.
+ * The fix is to stop reacting to momentary cursor position at all while a
+ * drag is in progress -- freeze the current hover/size entirely -- and
+ * resolve it once, cleanly, right after the drag actually settles.
  */
 let overlayHovered = false
+let isDragging = false
+let dragSettleTimer = null
+const DRAG_SETTLE_IDLE_MS = 120 // no further will-move events for this long => the drag has ended
+
+/** Called from the overlay's 'will-move' handler, which only ever fires for
+ * an interactive OS-driven drag -- never for our own setBounds() calls. */
+function markDragging() {
+  isDragging = true
+  if (dragSettleTimer) clearTimeout(dragSettleTimer)
+  dragSettleTimer = setTimeout(() => {
+    isDragging = false
+    dragSettleTimer = null
+    // One clean, immediate resolution against the cursor's actual final
+    // position, rather than waiting out the rest of the 100ms poll cycle.
+    pollOverlayHover()
+  }, DRAG_SETTLE_IDLE_MS)
+}
+
 function pollOverlayHover() {
   if (!overlayWindow || overlayWindow.isDestroyed() || !overlayWindow.isVisible()) {
     overlayHovered = false
     return
   }
+  // Frozen for the whole drag -- see markDragging above.
+  if (isDragging) return
 
   const { x, y } = screen.getCursorScreenPoint()
   const bounds = overlayWindow.getBounds()
