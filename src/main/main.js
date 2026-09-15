@@ -152,6 +152,18 @@ function createOverlayWindow() {
   // before the snap-back catches up, so intercept 'will-move' instead and
   // substitute the clamped bounds before the move ever happens -- the
   // window can then never actually leave the screen, on any edge.
+  //
+  // That substitution only works on Windows, though: per Electron's own
+  // docs, event.preventDefault() in this handler "will prevent the window
+  // from being moved" on Windows specifically -- on macOS it's a no-op, the
+  // native drag keeps driving the window to the raw (unclamped) newBounds
+  // regardless. Calling setBounds() there anyway doesn't substitute
+  // anything; it just races the OS's own in-progress move with our
+  // correction on every tick, which is the glitching/jitter this produced
+  // on macOS while staying perfectly smooth on Windows. So only do the
+  // live clamp-and-cancel on win32; macOS instead gets clamped once,
+  // cleanly, right after the drag settles (see the dragSettleTimer callback
+  // in markDragging below) -- a soft correction instead of a fight.
   overlayWindow.on('will-move', (event, newBounds) => {
     // 'will-move' only ever fires for this kind of interactive, OS-driven
     // drag -- not for our own setBounds() calls -- so it doubles as a clean
@@ -161,12 +173,12 @@ function createOverlayWindow() {
     // tick.
     markDragging()
 
-    const { workArea } = screen.getDisplayMatching(newBounds)
-    const x = Math.min(Math.max(newBounds.x, workArea.x), workArea.x + workArea.width - newBounds.width)
-    const y = Math.min(Math.max(newBounds.y, workArea.y), workArea.y + workArea.height - newBounds.height)
-    if (x !== newBounds.x || y !== newBounds.y) {
+    if (process.platform !== 'win32') return
+
+    const clamped = clampBoundsToWorkArea(newBounds)
+    if (clamped.x !== newBounds.x || clamped.y !== newBounds.y) {
       event.preventDefault()
-      overlayWindow.setBounds({ x, y, width: newBounds.width, height: newBounds.height })
+      overlayWindow.setBounds(clamped)
     }
   })
 
@@ -176,7 +188,26 @@ function createOverlayWindow() {
     const [x, y] = overlayWindow.getPosition()
     store.set('overlayPosition', { x, y })
   }
-  overlayWindow.on('moved', savePosition)
+  overlayWindow.on('moved', () => {
+    // 'will-move' (windowWillMove:) only fires once, at the very start of
+    // an interactive drag on macOS -- unlike Windows' WM_MOVING, which
+    // fires on every tick of the drag. Relying on will-move alone to hold
+    // markDragging's freeze let it expire ~120ms into any mac drag that
+    // outlasted that, well before the user actually let go: the hover poll
+    // would resume mid-drag, see the cursor drift outside the window's
+    // current bounds (routine during a fast drag), and fire a resize that
+    // fights the OS's own drag-move -- the window desyncing from the
+    // cursor / stuttering that will-move's freeze was meant to prevent.
+    // 'moved' (windowDidMove:) does fire on every tick on both platforms,
+    // so once a drag is under way (isDragging already true, set by
+    // will-move) let it re-arm the same settle timer. Gated on isDragging
+    // already being true so our own programmatic moves -- the edge-docked
+    // animateOverlayTo() glide, the post-drag settle clamp -- don't
+    // spuriously start a freeze of their own; those always land after
+    // will-move's freeze has already lapsed.
+    if (isDragging) markDragging()
+    savePosition()
+  })
 
   overlayWindow.on('close', (event) => {
     // Closing the widget hides it; the tray keeps the app reachable.
@@ -401,7 +432,29 @@ function setOverlayMode(mode) {
 let overlayHovered = false
 let isDragging = false
 let dragSettleTimer = null
-const DRAG_SETTLE_IDLE_MS = 120 // no further will-move events for this long => the drag has ended
+// No further will-move/moved events for this long => the drag has ended.
+// This has to clear the OS's own live-drag pauses, not just our polling
+// cadence: a pause in cursor movement while the mouse button is still held
+// -- routine on a trackpad, where users re-grip mid-gesture -- produces no
+// 'moved' events either, since the window genuinely isn't moving yet. A
+// threshold that's too short concludes the drag ended while it's still
+// live, unfreezes, and lets pollOverlayHover's hover-triggered resize call
+// setBounds() -- which is exactly what desyncs -webkit-app-region: drag's
+// tracking from the cursor on macOS (a known Electron/AppKit interaction:
+// setBounds() during/near a live drag corrupts the OS's own drag-tracking
+// state), producing the window "teleporting" away from the mouse for the
+// rest of that gesture.
+const DRAG_SETTLE_IDLE_MS = 450
+
+/** Keeps `bounds` fully within the work area of whichever display it's
+ * (mostly) on -- shared by the live win32 will-move clamp above and the
+ * post-drag settle clamp below. */
+function clampBoundsToWorkArea(bounds) {
+  const { workArea } = screen.getDisplayMatching(bounds)
+  const x = Math.min(Math.max(bounds.x, workArea.x), workArea.x + workArea.width - bounds.width)
+  const y = Math.min(Math.max(bounds.y, workArea.y), workArea.y + workArea.height - bounds.height)
+  return { x, y, width: bounds.width, height: bounds.height }
+}
 
 /** Called from the overlay's 'will-move' handler, which only ever fires for
  * an interactive OS-driven drag -- never for our own setBounds() calls. */
@@ -411,6 +464,14 @@ function markDragging() {
   dragSettleTimer = setTimeout(() => {
     isDragging = false
     dragSettleTimer = null
+    // macOS never got the live clamp during the drag itself (see will-move
+    // above -- preventDefault() can't cancel the native move there), so the
+    // window may have been let go past a screen edge. Correct that now,
+    // once, instead of fighting the drag frame-by-frame.
+    if (process.platform !== 'win32' && overlayWindow && !overlayWindow.isDestroyed()) {
+      const clamped = clampBoundsToWorkArea(overlayWindow.getBounds())
+      overlayWindow.setBounds(clamped)
+    }
     // One clean, immediate resolution against the cursor's actual final
     // position, rather than waiting out the rest of the 100ms poll cycle.
     pollOverlayHover()
@@ -728,17 +789,36 @@ app.on('before-quit', () => {
   isQuitting = true
 })
 
+let hasCleanedUpForQuit = false
+
 app.on('will-quit', async (event) => {
-  if (!server) return
+  // engine.dispose() and tray.destroy() used to live inside the `if
+  // (!server)` branch below, so they never ran at all when the local API
+  // server had failed to start (see the startServer() catch in
+  // whenReady() -- the app carries on without it rather than refusing to
+  // launch). With no dispose(), the engine's tick interval kept firing
+  // during quit teardown, and its 'tick'/'state' handlers (wireEngine)
+  // kept calling tray.refresh() after Electron had already torn down the
+  // native tray -- an uncaught "Tray is destroyed". Guard with a flag
+  // instead of `server` so cleanup always runs exactly once regardless of
+  // whether the server ever came up.
+  if (hasCleanedUpForQuit) return
+  hasCleanedUpForQuit = true
   event.preventDefault()
-  const closing = server
-  server = null
-  try {
-    await closing.close()
-  } catch {
-    // Nothing useful to do during shutdown.
-  }
+
   engine.dispose()
   tray?.destroy()
+  tray = null
+
+  if (server) {
+    const closing = server
+    server = null
+    try {
+      await closing.close()
+    } catch {
+      // Nothing useful to do during shutdown.
+    }
+  }
+
   app.quit()
 })

@@ -5,7 +5,24 @@
       "Bash(node -e ' *)",
       "Bash(taskkill //F //IM electron.exe //T)",
       "Bash(taskkill //F //IM Timer.exe //T)",
-      "Bash(npm run *)"
+      "Bash(npm run *)",
+      "WebSearch",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(node --check src/main/main.js)",
+      "Bash(timeout 20 npm run dev)",
+      "Bash(kill %1)",
+      "Read(//tmp/**)",
+      "Bash(node node_modules/electron/install.js)",
+      "Bash(pkill -f electron-vite)",
+      "Bash(pkill -f \"out/main/main.js\")",
+      "Bash(pkill -f Electron.app)",
+      "Bash(node_modules/electron/dist/Electron.app/Contents/MacOS/Electron --version)",
+      "Bash(\"node_modules/electron/dist/Electron.app/Contents/MacOS/Electron\" --version)",
+      "Bash(env)",
+      "Bash(unset ELECTRON_RUN_AS_NODE)",
+      "WebFetch(domain:github.com)",
+      "Bash(sw_vers)",
+      "Bash(brew install *)"
     ]
   }
 }
