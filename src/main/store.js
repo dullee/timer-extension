@@ -44,7 +44,7 @@ export const OVERLAY_COMPACT_SIZES = Object.freeze({
   // gap from window edge to clock is (windowWidth - contentWidth) / 2
   // regardless of the card's own padding, so this width is the actual knob
   // for "how much breathing room the compact mini widget has."
-  [OVERLAY_MODE.MINI]: { width: 88, height: 64 }
+  [OVERLAY_MODE.MINI]: { width: 84, height: 54 }
 })
 
 // Same as above, but with room for the progress ring -- it's off by default
@@ -53,7 +53,7 @@ export const OVERLAY_COMPACT_SIZES = Object.freeze({
 // for, or it would get clipped at the narrower default compact width.
 export const OVERLAY_COMPACT_SIZES_WITH_RING = Object.freeze({
   [OVERLAY_MODE.FLOATING]: { width: 185, height: 90 },
-  [OVERLAY_MODE.MINI]: { width: 140, height: 64 }
+  [OVERLAY_MODE.MINI]: { width: 132, height: 54 }
 })
 
 const schema = {

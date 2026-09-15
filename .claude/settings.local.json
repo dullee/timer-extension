@@ -22,7 +22,9 @@
       "Bash(unset ELECTRON_RUN_AS_NODE)",
       "WebFetch(domain:github.com)",
       "Bash(sw_vers)",
-      "Bash(brew install *)"
+      "Bash(brew install *)",
+      "Bash(node --check src/main/store.js)",
+      "Bash(screencapture -x /tmp/overlay1.png)"
     ]
   }
 }

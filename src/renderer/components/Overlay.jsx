@@ -108,14 +108,14 @@ export default function Overlay({ snapshot, settings }) {
   return (
     <div
       className={`drag flex h-full w-full flex-col justify-center rounded-2xl border border-ink/10 bg-surface/85 shadow-2xl backdrop-blur-xl ${
-        // Mini's compact state is the tightest window on screen (100x64) and
+        // Mini's compact state is the tightest window on screen (84x54) and
         // has the least content to protect (just the clock, no icons) -- the
         // full 0.75rem padding other states need to keep the icon row off
         // the rounded corners is wasted space here, so it gets its own,
         // smaller fallback. Both still read the same --dev-card-padding-x
         // var, so the Dev Layout slider still overrides either uniformly.
         !isMini && !hovered
-          ? 'px-[var(--dev-card-padding-x,0.5rem)]'
+          ? 'px-[var(--dev-card-padding-x,0.375rem)]'
           : 'px-[var(--dev-card-padding-x,0.75rem)]'
       } ${expired ? 'ring-2 ring-accent/60' : ''}`}
     >

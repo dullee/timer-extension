@@ -1,6 +1,20 @@
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { BrowserWindow, Notification, app, ipcMain, nativeTheme, screen, shell } from 'electron'
+
+// A Writable stream throws an uncaught exception on a write failure unless
+// something is listening for its own 'error' event -- and nothing was, so a
+// single failed console.log/console.error (stdout/stderr going briefly EIO,
+// e.g. a dev terminal window being resized or its scrollback paused) was
+// enough to crash the entire app, not just drop that one line of output. A
+// dropped log line is fine; losing the whole GUI over it is not, so make
+// these non-fatal instead of letting Node's default (fatal) behavior stand.
+process.stdout.on('error', (err) => {
+  if (err.code !== 'EPIPE' && err.code !== 'EIO') throw err
+})
+process.stderr.on('error', (err) => {
+  if (err.code !== 'EPIPE' && err.code !== 'EIO') throw err
+})
 import { MODE, STATE, TimerEngine } from './timer-engine.js'
 import {
   OVERLAY_COMPACT_SIZES,
