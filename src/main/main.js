@@ -316,10 +316,14 @@ function applyAlwaysOnTop(value) {
   }
 }
 
-// How long the compact <-> expanded resize takes to settle. Short enough
-// that hovering still feels responsive, long enough to read as a glide
-// rather than a snap.
-const RESIZE_ANIMATION_MS = 180
+// How long the compact <-> expanded resize takes to settle, and how often it
+// steps while doing so. 60fps was noticeably choppy for a resize this size
+// (each step's width/height jump is large enough to see) -- 120fps halves
+// the jump between steps for a visibly smoother glide. Slower on purpose too:
+// 450ms reads as a deliberate glide rather than a quick snap, while still
+// resolving well within the time it takes to actually move the mouse away.
+const RESIZE_ANIMATION_MS = 450
+const RESIZE_FPS = 120
 
 let resizeAnimation = null
 
@@ -375,7 +379,13 @@ function animateOverlayTo(size) {
   overlayWindow.setResizable(true)
 
   const startedAt = Date.now()
-  const easeOutCubic = (t) => 1 - (1 - t) ** 3
+  // Ease-in-out, not ease-out: ease-out moves *fastest at the very start*
+  // and only decelerates into the landing, so everything that reflows with
+  // the window -- especially the clock text, which re-centers every frame
+  // as the row's width changes -- got a jarring high-speed burst right as
+  // a hover began, before slowing down. Easing in gently at both ends
+  // removes that burst without needing to touch the reflow itself.
+  const easeInOutCubic = (t) => (t < 0.5 ? 4 * t ** 3 : 1 - (-2 * t + 2) ** 3 / 2)
 
   resizeAnimation = setInterval(() => {
     if (!overlayWindow || overlayWindow.isDestroyed()) {
@@ -385,7 +395,7 @@ function animateOverlayTo(size) {
     }
 
     const t = Math.min(1, (Date.now() - startedAt) / RESIZE_ANIMATION_MS)
-    const eased = easeOutCubic(t)
+    const eased = easeInOutCubic(t)
 
     overlayWindow.setBounds(
       {
@@ -406,7 +416,7 @@ function animateOverlayTo(size) {
       resizeAnimation = null
       overlayWindow.setResizable(false)
     }
-  }, 1000 / 60)
+  }, 1000 / RESIZE_FPS)
   resizeAnimation.unref?.()
 }
 
