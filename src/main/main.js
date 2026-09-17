@@ -21,6 +21,7 @@ import {
   OVERLAY_COMPACT_SIZES_WITH_RING,
   OVERLAY_MODE,
   OVERLAY_SIZES,
+  OVERLAY_WIDE_WIDTHS,
   getPublicSettings,
   regenerateApiToken,
   store,
@@ -107,6 +108,25 @@ const sharedWebPreferences = {
 const devOverlaySizeOverrides = new Map()
 const devSizeKey = (mode, hovered) => `${mode}-${hovered ? 'hover' : 'compact'}`
 
+// Set by the 'window:set-overlay-editing-duration' IPC handler -- see
+// setOverlayEditingDuration below -- whenever Overlay.jsx's click-to-edit
+// duration field is open. In-memory only, like overlayHovered: this is
+// live UI state, not something that should survive a relaunch.
+let overlayEditingDuration = false
+
+/**
+ * Whether the overlay needs OVERLAY_WIDE_WIDTHS' floor instead of its
+ * mode/hover size as normal: either the duration field is actively open, or
+ * the clock is simply displaying 10+ hours already (checked off whatever
+ * getState() currently has on the clock -- remainingMs doubles as "the
+ * stopwatch's elapsed time" in that mode too, see timer-engine.js).
+ */
+function overlayNeedsWideWidth() {
+  if (overlayEditingDuration) return true
+  const { remainingMs } = engine.getState()
+  return Math.floor(Math.max(0, remainingMs) / 3600000) >= 10
+}
+
 /**
  * The pointer starts outside the overlay, so it opens at its compact size.
  * The hover-expanded size doesn't depend on the ring -- it's already sized
@@ -115,16 +135,42 @@ const devSizeKey = (mode, hovered) => `${mode}-${hovered ? 'hover' : 'compact'}`
  * needs the wider variant whenever the ring is also showing.
  */
 function getOverlaySize(mode, hovered) {
+  let base = null
   if (isDev) {
-    const override = devOverlaySizeOverrides.get(devSizeKey(mode, hovered))
-    if (override) return override
+    base = devOverlaySizeOverrides.get(devSizeKey(mode, hovered)) ?? null
   }
-  const sizes = hovered
-    ? OVERLAY_SIZES
-    : store.get('showProgressRing')
-      ? OVERLAY_COMPACT_SIZES_WITH_RING
-      : OVERLAY_COMPACT_SIZES
-  return sizes[mode] ?? sizes[OVERLAY_MODE.FLOATING]
+  if (!base) {
+    const sizes = hovered
+      ? OVERLAY_SIZES
+      : store.get('showProgressRing')
+        ? OVERLAY_COMPACT_SIZES_WITH_RING
+        : OVERLAY_COMPACT_SIZES
+    base = sizes[mode] ?? sizes[OVERLAY_MODE.FLOATING]
+  }
+  // Applied even on top of a dev override -- a Dev Layout size is "what
+  // this mode/hover state normally is," not "never widen this window for
+  // any reason," and the duration field still needs its floor regardless
+  // of whatever's being tuned.
+  const wideWidth = OVERLAY_WIDE_WIDTHS[mode]
+  if (wideWidth && overlayNeedsWideWidth()) {
+    return { width: Math.max(base.width, wideWidth), height: base.height }
+  }
+  return base
+}
+
+/**
+ * Wired to the duration field's open/close state in Overlay.jsx. Resizes
+ * immediately rather than waiting for the next hover/tick-driven resize --
+ * opening the field should widen the window right then, not whenever
+ * something else next happens to trigger a size check.
+ */
+function setOverlayEditingDuration(editing) {
+  const next = Boolean(editing)
+  if (next === overlayEditingDuration) return
+  overlayEditingDuration = next
+  if (overlayWindow && !overlayWindow.isDestroyed()) {
+    animateOverlayTo(getOverlaySize(store.get('overlayMode'), overlayHovered))
+  }
 }
 
 function createOverlayWindow() {
@@ -651,6 +697,7 @@ function registerIpc() {
   }))
 
   ipcMain.handle('window:set-overlay-mode', (_e, mode) => setOverlayMode(mode))
+  ipcMain.handle('window:set-overlay-editing-duration', (_e, editing) => setOverlayEditingDuration(editing))
   ipcMain.handle('window:hide-overlay', () => {
     overlayWindow?.hide()
     tray?.refresh()
@@ -723,11 +770,27 @@ function registerDevIpc() {
 
 /* --------------------------------------------------------------- engine */
 
+/**
+ * Re-checks whether mini's wide width should still apply now that the
+ * clock's value has changed -- crossing the 10-hour mark, either direction,
+ * while running/counting. animateOverlayTo() already no-ops when the target
+ * size matches the current one (see its own early return), so calling this
+ * on every single tick is cheap: it's a real resize only on the rare second
+ * that boundary is actually crossed, same eased glide as every other
+ * overlay resize.
+ */
+function syncOverlaySizeToTimer() {
+  if (overlayWindow && !overlayWindow.isDestroyed()) {
+    animateOverlayTo(getOverlaySize(store.get('overlayMode'), overlayHovered))
+  }
+}
+
 function wireEngine() {
   engine.on('state', (snapshot) => {
     broadcast('timer:state', snapshot)
     updateProgress(snapshot)
     tray?.refresh()
+    syncOverlaySizeToTimer()
   })
 
   // Rebuilding the tray menu 5x a second is pointless work; the visible
@@ -741,6 +804,7 @@ function wireEngine() {
       lastTraySecond = second
       tray?.refresh()
     }
+    syncOverlaySizeToTimer()
   })
 
   engine.on('expired', async (snapshot) => {

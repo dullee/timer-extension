@@ -49,6 +49,7 @@ const api = {
 
   /* ------------------------------------------------------------- windows */
   setOverlayMode: (mode) => ipcRenderer.invoke('window:set-overlay-mode', mode),
+  setOverlayEditingDuration: (editing) => ipcRenderer.invoke('window:set-overlay-editing-duration', editing),
   hideOverlay: () => ipcRenderer.invoke('window:hide-overlay'),
   openSettings: () => ipcRenderer.invoke('window:open-settings'),
   closeSettings: () => ipcRenderer.invoke('window:close-settings'),

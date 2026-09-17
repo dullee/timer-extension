@@ -24,9 +24,18 @@ export const OVERLAY_MODE = Object.freeze({
 // drop their controls into a row *below* the clock rather than widening, so
 // only the height grows -- sized for the worst case the clock can produce
 // ("1:05:04"), so the fixed-width row never has to squeeze or overlap.
+//
+// Mini's width is specifically sized to its button row, not the clock text:
+// measured directly, the row's 4 icon buttons (toggle mode / Settings /
+// Close, plus Play-or-Pause) come to 102px of actual content (24px each +
+// 3x 2px gaps), and the card's own padding here is 24px total -- 126px is
+// the floor below which that row would clip. 134px leaves a real but
+// deliberately thin 8px margin, well down from the original 170px, which
+// was sized for a wider 5-button row before Dev Layout and the mode-switch
+// button were removed from it.
 export const OVERLAY_SIZES = Object.freeze({
   [OVERLAY_MODE.FLOATING]: { width: 330, height: 132 },
-  [OVERLAY_MODE.MINI]: { width: 170, height: 100 }
+  [OVERLAY_MODE.MINI]: { width: 100, height: 80 }
 })
 
 // Size while the pointer is elsewhere: the overlay hides its controls, so
@@ -35,8 +44,8 @@ export const OVERLAY_SIZES = Object.freeze({
 // to the worst case the clock can produce ("1:05:04"), measured against the
 // actual rendered font at each mode's clock size (text-2xl / text-base) plus
 // the card's px-3 padding -- not the wider hover-state width, which only has
-// to be that wide to fit the five-button control row, something the compact
-// state never shows.
+// to be that wide to fit mini's button row, something the compact state
+// never shows.
 export const OVERLAY_COMPACT_SIZES = Object.freeze({
   [OVERLAY_MODE.FLOATING]: { width: 135, height: 90 },
   // Tighter than a straight worst-case-text calculation would need, on
@@ -44,7 +53,13 @@ export const OVERLAY_COMPACT_SIZES = Object.freeze({
   // gap from window edge to clock is (windowWidth - contentWidth) / 2
   // regardless of the card's own padding, so this width is the actual knob
   // for "how much breathing room the compact mini widget has."
-  [OVERLAY_MODE.MINI]: { width: 84, height: 54 }
+  //
+  // Measured, not guessed: the worst-case clock string ("1:05:04") renders
+  // at 66x16px in mini's font, and the card's own horizontal padding here
+  // is 12px total -- 78px is the hard floor below which that text clips.
+  // 80x36 leaves a deliberately thin 2px/10px margin rather than the
+  // original 84x54's more generous one, for a visibly smaller idle widget.
+  [OVERLAY_MODE.MINI]: { width: 80, height: 36 }
 })
 
 // Same as above, but with room for the progress ring -- it's off by default
@@ -53,7 +68,23 @@ export const OVERLAY_COMPACT_SIZES = Object.freeze({
 // for, or it would get clipped at the narrower default compact width.
 export const OVERLAY_COMPACT_SIZES_WITH_RING = Object.freeze({
   [OVERLAY_MODE.FLOATING]: { width: 185, height: 90 },
-  [OVERLAY_MODE.MINI]: { width: 132, height: 54 }
+  [OVERLAY_MODE.MINI]: { width: 128, height: 44 }
+})
+
+// The floor width mini needs -- at *either* the compact or hover height --
+// while the click-to-edit duration field (Overlay.jsx) is open, or while
+// double-digit hours are simply showing (">=10h", read-only or not): both
+// need all three H:MM:SS groups rendered at once, which every other mini
+// size above was never sized for (they all assume the single-digit-hour
+// worst case "1:05:04" -- see OVERLAY_COMPACT_SIZES's comment). main.js's
+// getOverlaySize() takes the max of this and whatever the mode/hover state
+// would otherwise use, so it only ever widens, never shrinks something that
+// was already bigger for another reason (the hover width's button row,
+// say). Floating has no equivalent entry: its own sizes (135-330px) already
+// clear double-digit hours at its smaller text-base clock with room to
+// spare, so it never needs widening.
+export const OVERLAY_WIDE_WIDTHS = Object.freeze({
+  [OVERLAY_MODE.MINI]: 165
 })
 
 const schema = {
@@ -68,7 +99,7 @@ const schema = {
   overlayMode: {
     type: 'string',
     enum: [OVERLAY_MODE.FLOATING, OVERLAY_MODE.MINI],
-    default: OVERLAY_MODE.FLOATING
+    default: OVERLAY_MODE.MINI
   },
   overlayPosition: {
     type: ['object', 'null'],

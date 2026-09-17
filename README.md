@@ -227,7 +227,7 @@ src/renderer/
   components/      Overlay, SettingsWindow, ProgressRing, Icons
   hooks/useTimer.js  IPC subscriptions and the chime
 scripts/
-  generate-assets.mjs  synthesizes chime.wav and icon.png from scratch
+  generate-assets.mjs  synthesizes chime.wav, icon.png, and the tray icons from scratch
 ```
 
 ### Customizing the look
@@ -281,7 +281,9 @@ A few decisions that are easy to undo by accident:
   `tailwind.config.js` is a v3 concept and would be ignored.
 
 - **`build/icon.png` is copied via `extraResources`.** electron-builder compiles it into the
-  executable icon but does not otherwise ship it, and the tray loads it at runtime.
+  executable icon but does not otherwise ship it. `build/tray-timer.png` and
+  `build/tray-stopwatch.png` (also `extraResources`) are what the tray actually loads at
+  runtime -- `src/main/tray.js` picks between them to reflect the timer's current mode.
 
 ---
 

@@ -49,6 +49,14 @@
       {
         "from": "build/icon.png",
         "to": "icon.png"
+      },
+      {
+        "from": "build/tray-timer.png",
+        "to": "tray-timer.png"
+      },
+      {
+        "from": "build/tray-stopwatch.png",
+        "to": "tray-stopwatch.png"
       }
     ],
     "asar": true,

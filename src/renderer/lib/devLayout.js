@@ -92,7 +92,7 @@ export const DEV_LAYOUT_JUSTIFY_FIELD = {
   key: 'controlsJustify',
   cssVar: '--dev-controls-justify',
   label: 'Icon row justify-content',
-  hint: 'The below-clock icon row only (floating)',
+  hint: 'The below-clock icon row only (mini)',
   default: 'center',
   options: ['flex-start', 'center', 'flex-end', 'space-between', 'space-around']
 }

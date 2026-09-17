@@ -12,11 +12,25 @@ function formatRemaining(ms) {
   return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`
 }
 
-function trayIcon() {
-  // In dev the icon sits in the repo; packaged it rides along in resources.
+/**
+ * White-on-transparent so it reads on both light and dark taskbars, and
+ * shaped to reflect the timer's current mode -- see MODE in
+ * timer-engine.js and build/tray-{timer,stopwatch}.png's own header comment
+ * in generate-assets.mjs for how the two glyphs are drawn. Falls back to
+ * the full-color app icon if a mode-specific file is somehow missing
+ * (e.g. `npm run assets` hasn't been run since this was added).
+ */
+function trayIcon(mode) {
+  const filename = mode === MODE.STOPWATCH ? 'tray-stopwatch.png' : 'tray-timer.png'
+  // In dev the icons sit in the repo; packaged they ride along in resources.
   const candidates = app.isPackaged
-    ? [join(process.resourcesPath, 'icon.png'), join(app.getAppPath(), 'build', 'icon.png')]
-    : [join(app.getAppPath(), 'build', 'icon.png')]
+    ? [
+        join(process.resourcesPath, filename),
+        join(app.getAppPath(), 'build', filename),
+        join(process.resourcesPath, 'icon.png'),
+        join(app.getAppPath(), 'build', 'icon.png')
+      ]
+    : [join(app.getAppPath(), 'build', filename), join(app.getAppPath(), 'build', 'icon.png')]
 
   for (const path of candidates) {
     const image = nativeImage.createFromPath(path)
@@ -36,10 +50,18 @@ function trayIcon() {
  * dismissing the widget never strands a running timer in the background.
  */
 export function createTray({ engine, controls }) {
-  const tray = new Tray(trayIcon())
+  const tray = new Tray(trayIcon(engine.getState().mode))
+  // Avoids calling setImage() (a real OS-level icon swap) on every build(),
+  // most of which are just the countdown ticking -- only mode actually
+  // changes which file gets loaded.
+  let lastIconMode = engine.getState().mode
 
   function build() {
     const { mode, state, remainingMs, label } = engine.getState()
+    if (mode !== lastIconMode) {
+      lastIconMode = mode
+      tray.setImage(trayIcon(mode))
+    }
     const running = state === STATE.RUNNING
     const paused = state === STATE.PAUSED
     const overlayMode = controls.getOverlayMode()

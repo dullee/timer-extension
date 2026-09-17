@@ -1,10 +1,17 @@
 /**
- * Generates the two binary assets the app ships with, so the repo has no
- * opaque blobs and you can tweak the sound or icon by editing numbers here.
+ * Generates the binary assets the app ships with, so the repo has no opaque
+ * blobs and you can tweak the sound or icons by editing numbers here.
  *
- *   src/assets/chime.wav   two-tone bell, 44.1 kHz mono 16-bit PCM
- *   build/icon.png         512x512 RGBA clock glyph (electron-builder
- *                          derives .ico and .icns from this)
+ *   src/assets/chime.wav      two-tone bell, 44.1 kHz mono 16-bit PCM
+ *   build/icon.png            512x512 RGBA clock glyph (electron-builder
+ *                             derives .ico and .icns from this)
+ *   build/tray-timer.png      512x512 white-on-transparent clock glyph,
+ *   build/tray-stopwatch.png  for the system tray icon -- see tray.js,
+ *                             which swaps between them to reflect the
+ *                             timer's current mode (see MODE in
+ *                             timer-engine.js). White reads correctly
+ *                             against both light and dark taskbars, which
+ *                             the gradient app icon was never designed for.
  *
  * Run with: npm run assets
  */
@@ -122,6 +129,32 @@ function discCoverage(px, py, cx, cy, radius) {
   return hits / 9
 }
 
+/** Coverage of a ring (an annulus), reused for both mode glyphs' faces. */
+function ringCoverage(px, py, cx, cy, outer, inner) {
+  return discCoverage(px, py, cx, cy, outer) - discCoverage(px, py, cx, cy, inner)
+}
+
+/** Anti-aliased coverage of a round-capped line segment (a "capsule"), used
+ *  for hands, ticks, and the stopwatch's crown -- same 3x3 supersampling as
+ *  discCoverage, just against distance-to-segment instead of distance-to-point. */
+function capsuleCoverage(px, py, x1, y1, x2, y2, halfWidth) {
+  const dx = x2 - x1
+  const dy = y2 - y1
+  const lenSq = dx * dx + dy * dy
+  let hits = 0
+  for (let sy = 0; sy < 3; sy++) {
+    for (let sx = 0; sx < 3; sx++) {
+      const x = px + (sx + 0.5) / 3
+      const y = py + (sy + 0.5) / 3
+      const t = lenSq > 0 ? Math.max(0, Math.min(1, ((x - x1) * dx + (y - y1) * dy) / lenSq)) : 0
+      const cx = x1 + t * dx
+      const cy = y1 + t * dy
+      if (Math.hypot(x - cx, y - cy) <= halfWidth) hits++
+    }
+  }
+  return hits / 9
+}
+
 function buildIcon() {
   const S = 512
   const cx = S / 2
@@ -208,6 +241,83 @@ function buildIcon() {
   ])
 }
 
+/**
+ * A pure-white, transparent-background glyph for the system tray, in one of
+ * two shapes depending on the timer's mode -- see MODE in timer-engine.js.
+ * Both share buildIcon()'s ring proportions (outer 224 / inner 196 of a 512
+ * canvas), since that ring is already proven to read cleanly once resized
+ * down to the 16px the tray actually renders at (see trayIcon() in tray.js).
+ *
+ * 'timer' gets buildIcon()'s two clock hands (unchanged angles/lengths) so
+ * it reads as "a clock mid-countdown." 'stopwatch' swaps those for a single
+ * hand pointing straight up plus a crown button on top -- a literal
+ * stopwatch silhouette -- so the two are still distinguishable once the
+ * ring itself is too small to carry any more detail.
+ */
+function buildModeIcon(kind) {
+  const S = 512
+  const cx = S / 2
+  // Timer's ring is centered on the canvas, same proportions as the app
+  // icon. Stopwatch's ring sits lower, on purpose, to leave headroom above
+  // it for the crown button -- without that shift the crown would draw
+  // above y=0 and get clipped off the top of the canvas entirely.
+  const cy = kind === 'timer' ? S / 2 : S / 2 + 44
+  const outer = kind === 'timer' ? 224 : 190
+  const inner = kind === 'timer' ? 196 : 164
+
+  const raw = Buffer.alloc(S * (S * 4 + 1))
+
+  for (let y = 0; y < S; y++) {
+    const rowStart = y * (S * 4 + 1)
+    raw[rowStart] = 0 // PNG filter type: none
+
+    for (let x = 0; x < S; x++) {
+      const o = rowStart + 1 + x * 4
+      const px = x
+      const py = y
+
+      let a = ringCoverage(px, py, cx, cy, outer, inner)
+
+      if (kind === 'timer') {
+        // Same two hands as the app icon: minute hand up to 12, hour hand
+        // out to 3 -- reads as a specific, frozen moment on a clock face.
+        a = Math.max(a, capsuleCoverage(px, py, cx, cy, cx, cy - 132, 11))
+        a = Math.max(a, capsuleCoverage(px, py, cx, cy, cx + 92, cy, 12))
+      } else {
+        // A single hand straight up (a stopwatch reset/ready-to-0
+        // position) plus the crown button and its connecting stem sitting
+        // on top of the ring -- there's no hour hand to spare for a
+        // second hand here, so the crown is what carries "stopwatch"
+        // instead of "clock."
+        a = Math.max(a, capsuleCoverage(px, py, cx, cy, cx, cy - 140, 11))
+        a = Math.max(a, capsuleCoverage(px, py, cx, cy - outer, cx, cy - outer - 40, 12))
+        a = Math.max(a, capsuleCoverage(px, py, cx - 46, cy - outer - 40, cx + 46, cy - outer - 40, 20))
+      }
+
+      raw[o] = 255
+      raw[o + 1] = 255
+      raw[o + 2] = 255
+      raw[o + 3] = Math.round(Math.min(1, a) * 255)
+    }
+  }
+
+  const ihdr = Buffer.alloc(13)
+  ihdr.writeUInt32BE(S, 0)
+  ihdr.writeUInt32BE(S, 4)
+  ihdr[8] = 8 // bit depth
+  ihdr[9] = 6 // color type: RGBA
+  ihdr[10] = 0 // deflate
+  ihdr[11] = 0 // adaptive filtering
+  ihdr[12] = 0 // no interlace
+
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    pngChunk('IHDR', ihdr),
+    pngChunk('IDAT', deflateSync(raw, { level: 9 })),
+    pngChunk('IEND', Buffer.alloc(0))
+  ])
+}
+
 /* ------------------------------------------------------------------ write */
 
 function emit(relPath, buffer) {
@@ -220,4 +330,6 @@ function emit(relPath, buffer) {
 console.log('Generating assets:')
 emit('src/assets/chime.wav', buildChime())
 emit('build/icon.png', buildIcon())
+emit('build/tray-timer.png', buildModeIcon('timer'))
+emit('build/tray-stopwatch.png', buildModeIcon('stopwatch'))
 console.log('Done.')
