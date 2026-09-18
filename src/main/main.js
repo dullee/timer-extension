@@ -373,6 +373,16 @@ const RESIZE_FPS = 120
 
 let resizeAnimation = null
 
+function lockOverlayResizable() {
+  if (!overlayWindow || overlayWindow.isDestroyed()) return
+  if (process.platform === 'win32') overlayWindow.setResizable(false)
+}
+
+function unlockOverlayResizableForBounds() {
+  if (!overlayWindow || overlayWindow.isDestroyed()) return
+  if (process.platform === 'win32') overlayWindow.setResizable(true)
+}
+
 /**
  * Animates the overlay to `size`, growing or shrinking from wherever it
  * currently sits.
@@ -389,6 +399,12 @@ let resizeAnimation = null
  * back, since it's still constrained to that old min==max. Toggling
  * resizable once for the whole animation (not per frame, which would
  * flicker) forces Windows to accept the new size.
+ *
+ * That unlock is Windows-only: on macOS setBounds already works with
+ * resizable: false, and flipping it true (even briefly) lets the user
+ * drag the overlay's edges -- which Windows 11 never allows. Interruptions
+ * that clear the interval before the final setResizable(false) could also
+ * leave the window permanently resizable on macOS.
  */
 function animateOverlayTo(size) {
   if (!overlayWindow || overlayWindow.isDestroyed()) return
@@ -400,6 +416,9 @@ function animateOverlayTo(size) {
   if (resizeAnimation) {
     clearInterval(resizeAnimation)
     resizeAnimation = null
+    // Re-lock before the possible early return below -- otherwise a cancelled
+    // Windows animation could leave the overlay user-resizable.
+    lockOverlayResizable()
   }
 
   const { x, y, width: fromWidth, height: fromHeight } = overlayWindow.getBounds()
@@ -422,7 +441,7 @@ function animateOverlayTo(size) {
   const toX = dockedRight ? workArea.x + workArea.width - toWidth : x
   const toY = dockedBottom ? workArea.y + workArea.height - toHeight : y
 
-  overlayWindow.setResizable(true)
+  unlockOverlayResizableForBounds()
 
   const startedAt = Date.now()
   // Ease-in-out, not ease-out: ease-out moves *fastest at the very start*
@@ -460,7 +479,7 @@ function animateOverlayTo(size) {
     if (t >= 1) {
       clearInterval(resizeAnimation)
       resizeAnimation = null
-      overlayWindow.setResizable(false)
+      lockOverlayResizable()
     }
   }, 1000 / RESIZE_FPS)
   resizeAnimation.unref?.()
