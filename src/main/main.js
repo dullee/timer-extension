@@ -195,6 +195,17 @@ function createOverlayWindow() {
     hasShadow: false,
     backgroundColor: '#00000000',
     show: false,
+    // A plain NSWindow -- what every other window type on macOS compiles
+    // down to -- can be told to join full-screen Spaces via
+    // setVisibleOnAllWorkspaces below, but recent macOS (Sonoma+) still
+    // keeps it pinned under whatever app currently owns the full-screen
+    // Space instead of actually floating over it; only an NSPanel (Electron's
+    // 'panel' window type, macOS-only) is treated as the kind of auxiliary,
+    // cross-Space UI that's allowed to sit on top of a full-screen app --
+    // it's the same mechanism apps like Raycast rely on. Windows has no such
+    // distinction, which is why the always-on-top setup already worked there
+    // and only macOS needed this.
+    ...(process.platform === 'darwin' ? { type: 'panel' } : {}),
     webPreferences: sharedWebPreferences
   })
 
@@ -240,7 +251,7 @@ function createOverlayWindow() {
 
     if (process.platform !== 'win32') return
 
-    const clamped = clampBoundsToWorkArea(newBounds)
+    const clamped = clampBoundsToDisplay(newBounds)
     if (clamped.x !== newBounds.x || clamped.y !== newBounds.y) {
       event.preventDefault()
       overlayWindow.setBounds(clamped)
@@ -457,12 +468,18 @@ function animateOverlayTo(size) {
   // EDGE_TOLERANCE absorbs rounding -- the will-move handler above produces
   // an exact match when the user actually drags the window flush against an
   // edge.
+  // Same region choice as clampBoundsToDisplay above, and for the same
+  // reason: on macOS the overlay is meant to be draggable flush to the
+  // display's true edges (including over a full-screen app's hidden menu
+  // bar), so re-pinning a docked edge here against `workArea` instead of
+  // `bounds` would yank it back in off that edge the moment it next resizes.
   const EDGE_TOLERANCE = 2
-  const { workArea } = screen.getDisplayMatching({ x, y, width: fromWidth, height: fromHeight })
-  const dockedRight = x + fromWidth >= workArea.x + workArea.width - EDGE_TOLERANCE
-  const dockedBottom = y + fromHeight >= workArea.y + workArea.height - EDGE_TOLERANCE
-  const toX = dockedRight ? workArea.x + workArea.width - toWidth : x
-  const toY = dockedBottom ? workArea.y + workArea.height - toHeight : y
+  const display = screen.getDisplayMatching({ x, y, width: fromWidth, height: fromHeight })
+  const edgeRegion = process.platform === 'win32' ? display.workArea : display.bounds
+  const dockedRight = x + fromWidth >= edgeRegion.x + edgeRegion.width - EDGE_TOLERANCE
+  const dockedBottom = y + fromHeight >= edgeRegion.y + edgeRegion.height - EDGE_TOLERANCE
+  const toX = dockedRight ? edgeRegion.x + edgeRegion.width - toWidth : x
+  const toY = dockedBottom ? edgeRegion.y + edgeRegion.height - toHeight : y
 
   unlockOverlayResizableForBounds()
 
@@ -558,13 +575,32 @@ let dragSettleTimer = null
 // rest of that gesture.
 const DRAG_SETTLE_IDLE_MS = 450
 
-/** Keeps `bounds` fully within the work area of whichever display it's
- * (mostly) on -- shared by the live win32 will-move clamp above and the
- * post-drag settle clamp below. */
-function clampBoundsToWorkArea(bounds) {
-  const { workArea } = screen.getDisplayMatching(bounds)
-  const x = Math.min(Math.max(bounds.x, workArea.x), workArea.x + workArea.width - bounds.width)
-  const y = Math.min(Math.max(bounds.y, workArea.y), workArea.y + workArea.height - bounds.height)
+/** Keeps `bounds` fully within whichever display it's (mostly) on -- shared
+ * by the live win32 will-move clamp above and the post-drag settle clamp
+ * below.
+ *
+ * Windows clamps to `workArea` (the region excluding the taskbar) because
+ * that clamp is the *only* thing keeping the overlay from sliding under it
+ * -- there's no always-on-top trick equivalent to the macOS panel/screen-
+ * saver-level setup below that would let it float above the taskbar anyway.
+ *
+ * macOS clamps to the display's full `bounds` instead. The overlay is
+ * already set up (see the 'panel' window type and applyAlwaysOnTop) to
+ * render above the menu bar and even above other apps' full-screen Spaces --
+ * that's the whole point of it. `workArea` on macOS still reserves a strip
+ * for the menu bar regardless, so clamping to it after every drag pinned the
+ * overlay below that strip and yanked it back down the moment it was
+ * dropped near the top of the screen, menu bar or not (most visibly right
+ * after dragging it over a full-screen app, where the menu bar is hidden
+ * entirely and that gap is just dead space). Clamping to the full display
+ * bounds instead lets it actually reach the top edge, matching what it
+ * already visually sits above.
+ */
+function clampBoundsToDisplay(bounds) {
+  const display = screen.getDisplayMatching(bounds)
+  const region = process.platform === 'win32' ? display.workArea : display.bounds
+  const x = Math.min(Math.max(bounds.x, region.x), region.x + region.width - bounds.width)
+  const y = Math.min(Math.max(bounds.y, region.y), region.y + region.height - bounds.height)
   return { x, y, width: bounds.width, height: bounds.height }
 }
 
@@ -586,7 +622,7 @@ function markDragging() {
     // window may have been let go past a screen edge. Correct that now,
     // once, instead of fighting the drag frame-by-frame.
     if (process.platform !== 'win32' && overlayWindow && !overlayWindow.isDestroyed()) {
-      const clamped = clampBoundsToWorkArea(overlayWindow.getBounds())
+      const clamped = clampBoundsToDisplay(overlayWindow.getBounds())
       overlayWindow.setBounds(clamped)
     }
     // One clean, immediate resolution against the cursor's actual final
