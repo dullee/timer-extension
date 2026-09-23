@@ -202,7 +202,12 @@ function createOverlayWindow() {
   loadRenderer(overlayWindow, '/overlay')
 
   overlayWindow.once('ready-to-show', () => {
-    if (store.get('showOverlayOnStart')) overlayWindow.show()
+    if (store.get('showOverlayOnStart')) {
+      overlayWindow.show()
+      // See showOverlay()'s comment on why this is reapplied on every show,
+      // not just here at creation.
+      applyAlwaysOnTop(store.get('alwaysOnTop'))
+    }
   })
 
   // Windows' native window-drag already refuses to let a caption-style drag
@@ -406,6 +411,30 @@ function unlockOverlayResizableForBounds() {
  * that clear the interval before the final setResizable(false) could also
  * leave the window permanently resizable on macOS.
  */
+/**
+ * Stops any in-flight resize glide dead, without finishing it or queuing
+ * anything behind it. animateOverlayTo() already does this itself when a
+ * *new* target size interrupts the old one; this is the other caller --
+ * see markDragging below -- for when a drag interrupts it instead. The
+ * animation's own setInterval calls setBounds() up to 120x/sec, and every
+ * one of those is exactly the "setBounds() during/near a live drag corrupts
+ * the OS's own drag-tracking state" hazard the pollOverlayHover freeze
+ * above already exists to avoid on macOS -- that freeze only stops *new*
+ * hover-triggered resizes from starting mid-drag, though, it does nothing
+ * for a resize that was already running the instant the drag began (hover
+ * lands, then the user immediately grabs the still-animating widget), which
+ * is exactly what left the window teleporting around under the cursor
+ * instead of following it smoothly.
+ */
+function cancelResizeAnimation() {
+  if (!resizeAnimation) return
+  clearInterval(resizeAnimation)
+  resizeAnimation = null
+  // Only does anything on Windows (see animateOverlayTo's own comment on
+  // why resizable is toggled at all) -- harmless to call unconditionally.
+  lockOverlayResizable()
+}
+
 function animateOverlayTo(size) {
   if (!overlayWindow || overlayWindow.isDestroyed()) return
 
@@ -413,13 +442,7 @@ function animateOverlayTo(size) {
   // redirects from the window's actual current position rather than
   // queuing behind or fighting the one already in flight -- the same feel
   // as interrupting a CSS transition with a new target value.
-  if (resizeAnimation) {
-    clearInterval(resizeAnimation)
-    resizeAnimation = null
-    // Re-lock before the possible early return below -- otherwise a cancelled
-    // Windows animation could leave the overlay user-resizable.
-    lockOverlayResizable()
-  }
+  cancelResizeAnimation()
 
   const { x, y, width: fromWidth, height: fromHeight } = overlayWindow.getBounds()
   const { width: toWidth, height: toHeight } = size
@@ -549,6 +572,11 @@ function clampBoundsToWorkArea(bounds) {
  * an interactive OS-driven drag -- never for our own setBounds() calls. */
 function markDragging() {
   isDragging = true
+  // See cancelResizeAnimation's own comment -- a resize that was already
+  // running the instant this drag started needs to die right here, not
+  // finish out its remaining frames fighting the drag for the next
+  // (up to) 450ms.
+  cancelResizeAnimation()
   if (dragSettleTimer) clearTimeout(dragSettleTimer)
   dragSettleTimer = setTimeout(() => {
     isDragging = false
@@ -589,6 +617,15 @@ function pollOverlayHover() {
 function showOverlay() {
   if (!overlayWindow || overlayWindow.isDestroyed()) createOverlayWindow()
   overlayWindow.show()
+  // macOS drops an NSWindow's "join all Spaces, including full-screen ones"
+  // collection behavior across a hide/show cycle -- applyAlwaysOnTop's
+  // setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true }) sticks
+  // right after creation, but silently stops applying the next time the
+  // window is hidden (tray toggle, the close button) and shown again,
+  // which is what let the overlay vanish the moment another app went
+  // fullscreen despite alwaysOnTop being on the whole time. Reapplying it
+  // on every show, not just once at creation, is what makes it durable.
+  applyAlwaysOnTop(store.get('alwaysOnTop'))
   tray?.refresh()
 }
 
