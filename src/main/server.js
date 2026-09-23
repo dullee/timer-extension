@@ -245,6 +245,16 @@ export async function startServer({ engine, auth }) {
       engine.off('tick', onTick)
       engine.off('expired', onExpired)
       await io.close()
+      // http.Server#close() only stops accepting new connections -- its
+      // callback doesn't fire until every open one ends on its own, and a
+      // plain HTTP keep-alive connection (not a socket.io client, so io.close()
+      // above never touches it) can sit idle for minutes. The OAuth callback
+      // page is exactly this: it's a one-shot static page with nothing polling
+      // or holding a socket open on purpose, but the browser tab it loaded
+      // into can still keep that keep-alive connection open long after, and
+      // whoever is quitting the app has no reason to wait for it. Force-drop
+      // every live connection first so shutdown can't stall on one.
+      httpServer.closeAllConnections?.()
       await new Promise((resolve) => httpServer.close(resolve))
     }
   }

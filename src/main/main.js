@@ -75,6 +75,49 @@ function setTimerMode(mode) {
   return snapshot
 }
 
+/**
+ * setTimeout handle for a pending "start the stopwatch once this task's due
+ * time arrives" -- see scheduleTaskStopwatch below. In-memory only, like
+ * overlayHovered/isDragging: it's live UI state tied to whatever's selected
+ * right now, not something that should survive a relaunch. Module-level (not
+ * local to scheduleTaskStopwatch) purely so a newly selected task can cancel
+ * whatever the previously selected one had pending.
+ */
+let taskStopwatchTimer = null
+
+function startStopwatchNow() {
+  const snapshot = engine.start({ mode: MODE.STOPWATCH })
+  store.set('lastMode', snapshot.mode)
+}
+
+/**
+ * Linking a task is the user's way of saying "time this" -- but if the task
+ * has a future due date/time, that means "time this starting then," not
+ * "time this right now." `dueAt` is whatever Google Tasks' `due` field held
+ * for the selected task (see listTasks in auth.js): RFC3339 if present, but
+ * the stock Tasks apps only ever let you pick a date, so most tasks carry no
+ * meaningful time-of-day and this resolves to "start now" in practice.
+ */
+function scheduleTaskStopwatch(dueAt) {
+  if (taskStopwatchTimer) {
+    clearTimeout(taskStopwatchTimer)
+    taskStopwatchTimer = null
+  }
+
+  const dueMs = dueAt ? Date.parse(dueAt) : NaN
+  const delay = Number.isFinite(dueMs) ? dueMs - Date.now() : 0
+  if (delay <= 0) {
+    startStopwatchNow()
+    return
+  }
+
+  taskStopwatchTimer = setTimeout(() => {
+    taskStopwatchTimer = null
+    startStopwatchNow()
+  }, delay)
+  taskStopwatchTimer.unref?.()
+}
+
 /* -------------------------------------------------------------- windows */
 
 /** In dev electron-vite serves the renderer; packaged we load the built file. */
@@ -327,6 +370,12 @@ function createSettingsWindow() {
   settingsWindow.once('ready-to-show', () => settingsWindow.show())
   settingsWindow.on('closed', () => {
     settingsWindow = null
+    // Settings is reachable from the tray even while the overlay is hidden,
+    // so closing it (however that happens -- the window's own close button,
+    // Cmd+W, window:close-settings) is the user's only way back to the
+    // widget in that case. Bring it back rather than leaving them with no
+    // visible window at all.
+    showOverlay()
   })
 
   return settingsWindow
@@ -762,6 +811,20 @@ function registerIpc() {
     if ('overlayMode' in patch) setOverlayMode(patch.overlayMode)
     if ('lastDurationMs' in patch) engine.setDuration(patch.lastDurationMs)
     if ('lastMode' in patch) setTimerMode(patch.lastMode)
+    // Linking a task is the user's way of saying "time this" -- start (or
+    // schedule, see scheduleTaskStopwatch) a fresh stopwatch run whenever a
+    // real task gets selected. Not for the dropdown clearing back to null
+    // (still cancels anything pending, so an old selection can't fire late),
+    // and not for autoCompleteTaskEnabled toggling alone, which doesn't
+    // touch taskId.
+    if ('taskId' in patch) {
+      if (patch.taskId) {
+        scheduleTaskStopwatch(patch.taskDueAt)
+      } else if (taskStopwatchTimer) {
+        clearTimeout(taskStopwatchTimer)
+        taskStopwatchTimer = null
+      }
+    }
     // The compact width depends on whether the ring is showing (see
     // getOverlaySize) -- resize now rather than waiting for the next hover
     // transition, or the window would sit at the old width until the user
@@ -994,7 +1057,20 @@ app.on('will-quit', async (event) => {
     const closing = server
     server = null
     try {
-      await closing.close()
+      // Racing against a timeout, not just trusting close() to resolve --
+      // engine.dispose() above has already stripped the engine's listeners,
+      // so a hang here doesn't just delay quitting, it leaves a zombie
+      // process that *looks* alive (a later activate/second-instance can
+      // still bring windows back) but whose timer silently never does
+      // anything again for the rest of that session. See closeAllConnections
+      // in server.js for the specific way this used to hang (a lingering
+      // keep-alive connection, e.g. an OAuth callback tab left open) -- this
+      // timeout is the backstop for that and for anything else future code
+      // could snag on, so quitting can never depend on every caller behaving.
+      await Promise.race([
+        closing.close(),
+        new Promise((resolve) => setTimeout(resolve, 3000))
+      ])
     } catch {
       // Nothing useful to do during shutdown.
     }

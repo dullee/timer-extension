@@ -352,7 +352,11 @@ export function createGoogleAuth({ getPort, onChange = () => {} }) {
   async function listTasks(taskListId) {
     const url = `${TASKS_API}/lists/${encodeURIComponent(taskListId)}/tasks?showCompleted=false&maxResults=100`
     const data = await apiFetch(url)
-    return (data.items ?? []).map((t) => ({ id: t.id, title: t.title, status: t.status }))
+    // `due` is an RFC3339 timestamp when Google has one at all -- the stock
+    // Tasks apps only ever let you pick a date (so it comes back as
+    // midnight UTC on that day), but anything that wrote a real time via the
+    // API is passed through as-is for the auto-start scheduling in main.js.
+    return (data.items ?? []).map((t) => ({ id: t.id, title: t.title, status: t.status, due: t.due ?? null }))
   }
 
   /**

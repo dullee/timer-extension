@@ -534,7 +534,15 @@ export default function SettingsWindow({ snapshot, settings, previewChime }) {
               <Row label="Task to complete">
                 <select
                   value={settings.taskId ?? ''}
-                  onChange={(e) => patch({ taskId: e.target.value || null })}
+                  onChange={(e) => {
+                    const id = e.target.value || null
+                    // taskDueAt rides along on this one patch call rather than
+                    // being a stored setting of its own -- main.js reads it
+                    // once, off the raw IPC payload, to decide whether to
+                    // start the stopwatch now or schedule it for later.
+                    const due = id ? (tasks.find((t) => t.id === id)?.due ?? null) : null
+                    patch({ taskId: id, taskDueAt: due })
+                  }}
                   disabled={!settings.taskListId}
                   className={`${inputClass} w-56 disabled:opacity-40`}
                 >
