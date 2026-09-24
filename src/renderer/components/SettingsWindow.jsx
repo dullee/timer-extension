@@ -531,19 +531,36 @@ export default function SettingsWindow({ snapshot, settings, previewChime }) {
                 </select>
               </Row>
 
-              <Row label="Task to complete">
+              <Row
+                label="Task to complete"
+                hint={
+                  busy === 'resolve-task-due'
+                    ? 'Checking for a linked Calendar time block…'
+                    : undefined
+                }
+              >
                 <select
                   value={settings.taskId ?? ''}
                   onChange={(e) => {
                     const id = e.target.value || null
+                    const task = id ? tasks.find((t) => t.id === id) : null
+                    if (!task) {
+                      patch({ taskId: null, taskDueAt: null })
+                      return
+                    }
                     // taskDueAt rides along on this one patch call rather than
                     // being a stored setting of its own -- main.js reads it
                     // once, off the raw IPC payload, to decide whether to
-                    // start the stopwatch now or schedule it for later.
-                    const due = id ? (tasks.find((t) => t.id === id)?.due ?? null) : null
-                    patch({ taskId: id, taskDueAt: due })
+                    // start the stopwatch now or schedule it for later. It
+                    // prefers a linked Calendar focus-time block's real start
+                    // time (see resolveTaskDueAt in auth.js) over the task's
+                    // own due date, which never carries a time of day.
+                    run('resolve-task-due', async () => {
+                      const due = await api.google.resolveTaskDueAt(task)
+                      patch({ taskId: id, taskDueAt: due })
+                    })
                   }}
-                  disabled={!settings.taskListId}
+                  disabled={!settings.taskListId || busy === 'resolve-task-due'}
                   className={`${inputClass} w-56 disabled:opacity-40`}
                 >
                   <option value="">

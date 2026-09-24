@@ -9,8 +9,19 @@ const TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token'
 const REVOKE_ENDPOINT = 'https://oauth2.googleapis.com/revoke'
 const USERINFO_ENDPOINT = 'https://www.googleapis.com/oauth2/v3/userinfo'
 const TASKS_API = 'https://tasks.googleapis.com/tasks/v1'
+const CALENDAR_API = 'https://www.googleapis.com/calendar/v3'
 
-const SCOPES = ['https://www.googleapis.com/auth/tasks', 'openid', 'email']
+// calendar.readonly is needed for resolveTaskDueAt below -- a task's own
+// `due` field never carries a time of day (Google truncates it to midnight
+// regardless of what the Tasks app's date/time picker shows), but a task
+// that's been time-blocked from Calendar's "click a slot > Task" flow gets a
+// real timed event we can look up.
+const SCOPES = [
+  'https://www.googleapis.com/auth/tasks',
+  'https://www.googleapis.com/auth/calendar.readonly',
+  'openid',
+  'email'
+]
 
 /** Refresh this long before actual expiry, so a call never races the clock. */
 const EXPIRY_SKEW_MS = 60_000
@@ -352,11 +363,67 @@ export function createGoogleAuth({ getPort, onChange = () => {} }) {
   async function listTasks(taskListId) {
     const url = `${TASKS_API}/lists/${encodeURIComponent(taskListId)}/tasks?showCompleted=false&maxResults=100`
     const data = await apiFetch(url)
-    // `due` is an RFC3339 timestamp when Google has one at all -- the stock
-    // Tasks apps only ever let you pick a date (so it comes back as
-    // midnight UTC on that day), but anything that wrote a real time via the
-    // API is passed through as-is for the auto-start scheduling in main.js.
-    return (data.items ?? []).map((t) => ({ id: t.id, title: t.title, status: t.status, due: t.due ?? null }))
+    // `due` is always midnight UTC in practice -- Google truncates the time
+    // of day regardless of what the Tasks app's date/time picker shows, so
+    // it's only ever useful as a date. A real time comes from a linked
+    // Calendar focus-time block instead; see resolveTaskDueAt.
+    return (data.items ?? []).map((t) => ({
+      id: t.id,
+      title: t.title,
+      status: t.status,
+      due: t.due ?? null,
+      webViewLink: t.webViewLink ?? null
+    }))
+  }
+
+  /** The opaque id Google uses in a task's tasks.google.com/task/<id> link. */
+  function extractTaskLinkId(text) {
+    return /tasks\.google\.com\/task\/([\w-]+)/.exec(text ?? '')?.[1] ?? null
+  }
+
+  /**
+   * A task time-blocked from Calendar (click an empty slot > Task, rather
+   * than the Tasks app's own date/time picker -- see listTasks) gets a real
+   * `eventType: "focusTime"` event on the primary calendar, whose
+   * description links back to the task by the same id as its webViewLink.
+   * That's the only place a task's real time of day actually lives.
+   */
+  async function findFocusTimeBlockStart(task) {
+    const linkId = extractTaskLinkId(task?.webViewLink)
+    if (!linkId) return null
+
+    const params = new URLSearchParams({
+      timeMin: new Date(Date.now() - 86400000).toISOString(),
+      timeMax: new Date(Date.now() + 180 * 86400000).toISOString(),
+      singleEvents: 'true',
+      orderBy: 'startTime',
+      eventTypes: 'focusTime',
+      maxResults: '250'
+    })
+    const data = await apiFetch(`${CALENDAR_API}/calendars/primary/events?${params}`)
+    const blocks = (data.items ?? []).filter((ev) => extractTaskLinkId(ev.description) === linkId)
+    if (blocks.length === 0) return null
+
+    // Sorted ascending by orderBy=startTime -- prefer the next upcoming
+    // block, but fall back to the most recent past one (the last in the
+    // list) so a missed block still resolves to "start now" the same way a
+    // plain past-due date does.
+    const now = Date.now()
+    const upcoming = blocks.find((ev) => Date.parse(ev.start?.dateTime ?? '') >= now)
+    return (upcoming ?? blocks[blocks.length - 1]).start?.dateTime ?? null
+  }
+
+  /**
+   * The effective due time for scheduleTaskStopwatch in main.js: a linked
+   * Calendar focus-time block's real start time when one exists, else the
+   * task's own (date-only) `due`.
+   */
+  async function resolveTaskDueAt(task) {
+    const blockStart = await findFocusTimeBlockStart(task).catch((err) => {
+      console.warn('[auth] focus-time block lookup failed:', err.message)
+      return null
+    })
+    return blockStart ?? task?.due ?? null
   }
 
   /**
@@ -403,6 +470,7 @@ export function createGoogleAuth({ getPort, onChange = () => {} }) {
     listTaskLists,
     listTasks,
     completeTask,
-    completeConfiguredTaskOnExpiry
+    completeConfiguredTaskOnExpiry,
+    resolveTaskDueAt
   }
 }

@@ -93,10 +93,10 @@ function startStopwatchNow() {
 /**
  * Linking a task is the user's way of saying "time this" -- but if the task
  * has a future due date/time, that means "time this starting then," not
- * "time this right now." `dueAt` is whatever Google Tasks' `due` field held
- * for the selected task (see listTasks in auth.js): RFC3339 if present, but
- * the stock Tasks apps only ever let you pick a date, so most tasks carry no
- * meaningful time-of-day and this resolves to "start now" in practice.
+ * "time this right now." `dueAt` comes from auth.js's resolveTaskDueAt: the
+ * start time of a linked Calendar focus-time block when the task has one
+ * (real time-of-day), else the task's own `due` (date-only, since Google
+ * discards whatever time-of-day the Tasks app's own picker shows).
  */
 function scheduleTaskStopwatch(dueAt) {
   if (taskStopwatchTimer) {
@@ -881,6 +881,7 @@ function registerIpc() {
   ipcMain.handle('google:disconnect', () => auth.signOut())
   ipcMain.handle('google:list-task-lists', () => auth.listTaskLists())
   ipcMain.handle('google:list-tasks', (_e, taskListId) => auth.listTasks(taskListId))
+  ipcMain.handle('google:resolve-task-due-at', (_e, task) => auth.resolveTaskDueAt(task))
 }
 
 /**

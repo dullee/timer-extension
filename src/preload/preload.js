@@ -68,6 +68,7 @@ const api = {
     disconnect: () => ipcRenderer.invoke('google:disconnect'),
     listTaskLists: () => ipcRenderer.invoke('google:list-task-lists'),
     listTasks: (taskListId) => ipcRenderer.invoke('google:list-tasks', taskListId),
+    resolveTaskDueAt: (task) => ipcRenderer.invoke('google:resolve-task-due-at', task),
     onStatusChanged: (callback) => {
       const handler = (_event, status) => callback(status)
       ipcRenderer.on('google:status-changed', handler)

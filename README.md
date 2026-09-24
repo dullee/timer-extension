@@ -164,7 +164,9 @@ configured" notice.
 ### 1. Create the OAuth client
 
 1. Open the [Google Cloud Console](https://console.cloud.google.com/) and create (or pick) a project.
-2. **APIs & Services → Library** → enable the **Google Tasks API**.
+2. **APIs & Services → Library** → enable the **Google Tasks API** and the **Google Calendar API**
+   (the latter is used read-only, to pick up the real time of day when a linked task has been
+   time-blocked from Calendar — see step 3 below).
 3. **APIs & Services → OAuth consent screen** → configure it. While the app is in *Testing*, add
    your own Google account under **Test users**, or sign-in will be refused.
 4. **APIs & Services → Credentials → Create credentials → OAuth client ID**.
@@ -200,6 +202,13 @@ directory, which avoids rebuilding:
 Settings → **Google Tasks** → *Connect Google account*. Sign-in opens in your normal browser
 (Google blocks OAuth inside embedded app windows), then pick a task list and a task and enable
 *Complete the task when the timer ends*.
+
+Selecting a task also starts (or schedules) the stopwatch for it. Google's Tasks API never exposes
+a task's actual time of day — the classic date/time picker inside the Tasks app is decorative and
+always comes back as midnight — so this only picks up a real start time if the task has been
+time-blocked from *Google Calendar* itself (click an empty slot → **Task**, rather than setting a
+time from within the Tasks app). Without a Calendar time block, the stopwatch just starts
+immediately when the task is selected.
 
 Tokens are encrypted with Electron's `safeStorage`, which is backed by the OS keychain — DPAPI on
 Windows, Keychain on macOS. If no keychain is available, Settings says so plainly rather than
